@@ -276,7 +276,8 @@
               <div class="extraSection hidden">
                 <div class="font-semibold mb-1 extraLabel">Extra</div>
                 <div class="bg-white/15 p-3 rounded">
-                  <pre class="text-sm whitespace-pre-wrap extraText"></pre>
+                  <!-- checklist gets filled by JS -->
+                  <div class="checklist extraList"></div>
                 </div>
               </div>
             </div>
@@ -450,7 +451,7 @@ function makeChecklist(container, text){
       const shouldShowExtra = !!card.showExtra && (!!card.extraLabel || !!card.extraText);
       if (shouldShowExtra) {
         $('.extraLabel', wrap).textContent = card.extraLabel || 'Extra';
-        $('.extraText', wrap).textContent = card.extraText || '';
+        makeChecklist($('.extraList', wrap), card.extraText || '');
         extraSec.classList.remove('hidden');
         extraSec.style.display = 'block';
       } else {
