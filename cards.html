@@ -564,12 +564,13 @@ function makeChecklist(container, text){
 
     /* ========= PRINT: iframe-only, front & back on two Letter pages (Half-Letter card centered) ========= */
 
+    /* --- PRINT CLONE (patched to restore section separation on back) --- */
     function prepareFace(origFace){
       const face = origFace.cloneNode(true);
-
+    
       // Remove UI-only bits
       face.querySelectorAll('.print-hide').forEach(e=> e.remove());
-
+    
       // Base layout (no Tailwind in print iframe)
       face.style.display = 'flex';
       face.style.flexDirection = 'column';
@@ -583,44 +584,44 @@ function makeChecklist(container, text){
       face.style.transform = 'none';
       face.style.position = 'relative';
       face.style.textAlign = 'left';
-
+    
       // Preserve wrapping like screen
       face.querySelectorAll('pre').forEach(p => { p.style.whiteSpace = 'pre-wrap'; });
       face.querySelectorAll('.text-center').forEach(w => { w.style.textAlign = 'center'; });
-
+    
       // ICON: square wrapper + object-fit contain (no deformation)
       face.querySelectorAll('.iconWrap').forEach(w=>{
         const img = w.querySelector('img');
         const visible = !w.classList.contains('hidden') && img && img.getAttribute('src');
         if(!visible){ w.remove(); return; }
-
+    
         const cw = parseInt((img.style.width || getComputedStyle(img).width || '70px'), 10) || 70;
         const ch = parseInt((img.style.height || getComputedStyle(img).height || '70px'), 10) || 70;
         const size = Math.max(cw, ch, 70);
-
+    
         w.style.display = 'flex';
         w.style.alignItems = 'center';
         w.style.justifyContent = 'center';
         w.style.margin = '0 auto';
         w.style.width = size + 'px';
         w.style.height = size + 'px';
-
+    
         img.style.display = 'block';
         img.style.width   = '100%';
         img.style.height  = '100%';
         img.style.objectFit = 'contain';
       });
-
+    
       // QR: centered square + object-fit contain
       face.querySelectorAll('.qrBox').forEach(b=>{
         const img = b.querySelector('img');
         const visible = (b.style.display !== 'none') && img && img.getAttribute('src');
         if(!visible){ b.remove(); return; }
-
+    
         const wpx = parseInt((img.style.width || '106px'), 10) || 106;
         const hpx = parseInt((img.style.height || '106px'), 10) || 106;
         const size = Math.max(wpx, hpx, 106);
-
+    
         b.style.display = 'flex';
         b.style.alignItems = 'center';
         b.style.justifyContent = 'center';
@@ -629,29 +630,63 @@ function makeChecklist(container, text){
         b.style.height = (size + 10) + 'px';
         b.style.borderRadius = '10px';
         b.style.background = '#fff';
-
+    
         img.style.display = 'block';
         img.style.width   = '100%';
         img.style.height  = '100%';
         img.style.objectFit = 'contain';
       });
-
-      // Drop hidden optional extra
+    
+      // --- NEW: Restore section separation on the back page ---
+      if (face.classList.contains('card-back')) {
+        // Turn off the scroll box so print shows full content
+        const scroller = face.querySelector('[class*="overflow"]');
+        if (scroller){
+          scroller.style.maxHeight = 'none';
+          scroller.style.overflow = 'visible';
+          scroller.style.paddingRight = '0';
+        }
+    
+        // Headings for each block (Equipment / Steps / Extra)
+        face.querySelectorAll('.equipLabel, .stepsLabel, .extraLabel').forEach(lbl=>{
+          lbl.style.display = 'block';
+          lbl.style.fontWeight = '600';
+          lbl.style.marginTop = '10px';
+          lbl.style.marginBottom = '6px';
+        });
+    
+        // The light rounded containers behind each block
+        // (match Tailwind's bg-white/15, rounded, p-3, and spacing between blocks)
+        face.querySelectorAll('[class*="bg-white/15"]').forEach(box=>{
+          box.style.background = 'rgba(255,255,255,0.15)';
+          box.style.borderRadius = '10px';
+          box.style.padding = '12px';
+          box.style.margin = '0 0 12px 0';
+        });
+    
+        // Checklist row spacing (a little more generous for print)
+        face.querySelectorAll('.checklist .chk-row').forEach(r=>{
+          r.style.margin = '4px 0';
+        });
+      }
+    
+      // Drop hidden optional extra section
       face.querySelectorAll('.extraSection').forEach(sec=>{
         const cs = getComputedStyle(sec);
         if (sec.classList.contains('hidden') || cs.display === 'none') sec.remove();
       });
-
-      // Carry gradient/colors
+    
+      // Carry gradient/colors from screen
       try {
         const cs = getComputedStyle(origFace);
         face.style.backgroundImage = cs.backgroundImage;
         face.style.backgroundColor = cs.backgroundColor;
         face.style.color = cs.color;
       } catch(_) {}
-
+    
       return face;
     }
+
 
     function buildPrintHTML(cardWrap){
       const dims = { wIn:5.5, hIn:8.5 }; // Half-Letter card print area
