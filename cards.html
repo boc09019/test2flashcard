@@ -571,23 +571,22 @@ function makeChecklist(container, text){
 
     /* ========= PRINT: iframe-only, front & back on two Letter pages (Half-Letter card centered) ========= */
 
-    /* --- PRINT CLONE (fix offset/clipping; auto-fit tall content) --- */
+    /* --- PRINT CLONE (back-page offsets + safe spacing) --- */
     function prepareFace(origFace){
       const face = origFace.cloneNode(true);
     
-      // Remove UI-only bits (e.g., "Click to flip")
+      // Remove UI-only bits
       face.querySelectorAll('.print-hide').forEach(e=> e.remove());
     
       // Base layout (no Tailwind in print iframe)
       face.style.display = 'flex';
       face.style.flexDirection = 'column';
-      // Front spaced; Back top-aligned (prevents big top gap)
       face.style.justifyContent = face.classList.contains('card-back') ? 'flex-start' : 'space-between';
       face.style.padding = '24px';
       face.style.borderRadius = '18px';
       face.style.width = '360px';
       face.style.height = '540px';
-      face.style.boxSizing = 'border-box';          // ✅ include padding in 360×540
+      face.style.boxSizing = 'border-box';     // include padding inside 360×540
       face.style.boxShadow = 'none';
       face.style.transform = 'none';
       face.style.position = 'relative';
@@ -603,7 +602,6 @@ function makeChecklist(container, text){
         const visible = !w.classList.contains('hidden') && img && img.getAttribute('src');
         if(!visible){ w.remove(); return; }
     
-        // Use computed px or fallbacks
         const cw = parseInt((img.style.width || getComputedStyle(img).width || '70px'), 10) || 70;
         const ch = parseInt((img.style.height || getComputedStyle(img).height || '70px'), 10) || 70;
         const size = Math.max(cw, ch, 70);
@@ -646,32 +644,46 @@ function makeChecklist(container, text){
         img.style.objectFit = 'contain';
       });
     
-      // Restore section separation on back page (since Tailwind isn't in the print iframe)
+      // --- Back-page layout normalization (prevents the 3rd box from touching the border) ---
       if (face.classList.contains('card-back')) {
+        // The container that used to be 'space-y-4 overflow-auto pr-1'
         const scroller = face.querySelector('[class*="overflow"]');
         if (scroller){
+          // use a grid with a fixed row gap (reliable in print)
+          scroller.style.display = 'grid';
+          scroller.style.gridAutoRows = 'min-content';
+          scroller.style.rowGap = '12px';
           scroller.style.maxHeight = 'none';
           scroller.style.overflow = 'visible';
-          scroller.style.paddingRight = '0';
+          scroller.style.padding = '0';
+          scroller.style.margin = '0';
         }
     
+        // Headings (Equipment / Steps / Extra)
         face.querySelectorAll('.equipLabel, .stepsLabel, .extraLabel').forEach(lbl=>{
           lbl.style.display = 'block';
           lbl.style.fontWeight = '600';
-          lbl.style.marginTop = '10px';
-          lbl.style.marginBottom = '6px';
+          lbl.style.margin = '2px 0 6px 0';
         });
     
+        // Light boxes behind each section; give right padding so check-boxes aren't hugging the edge
         face.querySelectorAll('[class*="bg-white/15"]').forEach(box=>{
           box.style.background = 'rgba(255,255,255,0.15)';
           box.style.borderRadius = '10px';
-          box.style.padding = '12px';
-          box.style.margin = '0 0 12px 0';
+          box.style.padding = '12px 16px 12px 12px'; // extra right padding
+          box.style.margin = '0';                    // let grid rowGap handle spacing
         });
     
+        // Checklist row spacing
         face.querySelectorAll('.checklist .chk-row').forEach(r=>{
-          r.style.margin = '4px 0';
+          r.style.margin = '3px 0';
         });
+    
+        // Ensure a tiny bottom spacer so the last block never sits on the rounded border
+        const bottomSpacer = document.createElement('div');
+        bottomSpacer.style.height = '8px';
+        // append inside the scroller if present, otherwise at face end
+        (scroller || face).appendChild(bottomSpacer);
       }
     
       // Drop hidden optional extra section entirely
@@ -688,27 +700,24 @@ function makeChecklist(container, text){
         face.style.color = cs.color;
       } catch(_) {}
     
-      /* ===== NEW: auto-fit tall content so nothing is clipped ===== */
-      // Wrap all contents so we can downscale if needed
+      // ===== Auto-fit tall content so nothing clips =====
       const inner = document.createElement('div');
       inner.style.transformOrigin = 'top center';
       // Move children into inner
       while (face.firstChild) inner.appendChild(face.firstChild);
       face.appendChild(inner);
     
-      // After layout, check if content exceeds available height and scale down
-      // Because face is border-box 360×540 with 24px padding, face.clientHeight is the usable content height.
-      const maxH = face.clientHeight;             // content area height (540 - top/bottom padding)
-      const neededH = inner.scrollHeight;         // actual content height
+      // Reserve a tiny safety bottom gap when computing scale
+      const SAFE_BOTTOM = 6; // px inside the card
+      const maxH = face.clientHeight - SAFE_BOTTOM;
+      const neededH = inner.scrollHeight;
       if (neededH > maxH) {
-        const s = maxH / neededH;                 // scale factor to fit
-        inner.style.transform = `scale(${s})`;
-        // Optional: add bottom spacer so the scaled content appears visually centered vertically a bit more
-        // but keep simple to avoid reintroducing offset.
+        inner.style.transform = `scale(${maxH / neededH})`;
       }
     
       return face;
     }
+
 
 
 
