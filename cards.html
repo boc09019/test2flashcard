@@ -564,11 +564,11 @@ function makeChecklist(container, text){
 
     /* ========= PRINT: iframe-only, front & back on two Letter pages (Half-Letter card centered) ========= */
 
-    /* --- PRINT CLONE (patched to restore section separation on back) --- */
+    /* --- PRINT CLONE (fix offset/clipping; auto-fit tall content) --- */
     function prepareFace(origFace){
       const face = origFace.cloneNode(true);
     
-      // Remove UI-only bits
+      // Remove UI-only bits (e.g., "Click to flip")
       face.querySelectorAll('.print-hide').forEach(e=> e.remove());
     
       // Base layout (no Tailwind in print iframe)
@@ -580,6 +580,7 @@ function makeChecklist(container, text){
       face.style.borderRadius = '18px';
       face.style.width = '360px';
       face.style.height = '540px';
+      face.style.boxSizing = 'border-box';          // ✅ include padding in 360×540
       face.style.boxShadow = 'none';
       face.style.transform = 'none';
       face.style.position = 'relative';
@@ -595,6 +596,7 @@ function makeChecklist(container, text){
         const visible = !w.classList.contains('hidden') && img && img.getAttribute('src');
         if(!visible){ w.remove(); return; }
     
+        // Use computed px or fallbacks
         const cw = parseInt((img.style.width || getComputedStyle(img).width || '70px'), 10) || 70;
         const ch = parseInt((img.style.height || getComputedStyle(img).height || '70px'), 10) || 70;
         const size = Math.max(cw, ch, 70);
@@ -619,7 +621,7 @@ function makeChecklist(container, text){
         if(!visible){ b.remove(); return; }
     
         const wpx = parseInt((img.style.width || '106px'), 10) || 106;
-        const hpx = parseInt((img.style.height || '106px'), 10) || 106;
+        const hpx = parseInt((img.style.height || getComputedStyle(img).height || '106px'), 10) || 106;
         const size = Math.max(wpx, hpx, 106);
     
         b.style.display = 'flex';
@@ -637,9 +639,8 @@ function makeChecklist(container, text){
         img.style.objectFit = 'contain';
       });
     
-      // --- NEW: Restore section separation on the back page ---
+      // Restore section separation on back page (since Tailwind isn't in the print iframe)
       if (face.classList.contains('card-back')) {
-        // Turn off the scroll box so print shows full content
         const scroller = face.querySelector('[class*="overflow"]');
         if (scroller){
           scroller.style.maxHeight = 'none';
@@ -647,7 +648,6 @@ function makeChecklist(container, text){
           scroller.style.paddingRight = '0';
         }
     
-        // Headings for each block (Equipment / Steps / Extra)
         face.querySelectorAll('.equipLabel, .stepsLabel, .extraLabel').forEach(lbl=>{
           lbl.style.display = 'block';
           lbl.style.fontWeight = '600';
@@ -655,8 +655,6 @@ function makeChecklist(container, text){
           lbl.style.marginBottom = '6px';
         });
     
-        // The light rounded containers behind each block
-        // (match Tailwind's bg-white/15, rounded, p-3, and spacing between blocks)
         face.querySelectorAll('[class*="bg-white/15"]').forEach(box=>{
           box.style.background = 'rgba(255,255,255,0.15)';
           box.style.borderRadius = '10px';
@@ -664,13 +662,12 @@ function makeChecklist(container, text){
           box.style.margin = '0 0 12px 0';
         });
     
-        // Checklist row spacing (a little more generous for print)
         face.querySelectorAll('.checklist .chk-row').forEach(r=>{
           r.style.margin = '4px 0';
         });
       }
     
-      // Drop hidden optional extra section
+      // Drop hidden optional extra section entirely
       face.querySelectorAll('.extraSection').forEach(sec=>{
         const cs = getComputedStyle(sec);
         if (sec.classList.contains('hidden') || cs.display === 'none') sec.remove();
@@ -684,8 +681,28 @@ function makeChecklist(container, text){
         face.style.color = cs.color;
       } catch(_) {}
     
+      /* ===== NEW: auto-fit tall content so nothing is clipped ===== */
+      // Wrap all contents so we can downscale if needed
+      const inner = document.createElement('div');
+      inner.style.transformOrigin = 'top center';
+      // Move children into inner
+      while (face.firstChild) inner.appendChild(face.firstChild);
+      face.appendChild(inner);
+    
+      // After layout, check if content exceeds available height and scale down
+      // Because face is border-box 360×540 with 24px padding, face.clientHeight is the usable content height.
+      const maxH = face.clientHeight;             // content area height (540 - top/bottom padding)
+      const neededH = inner.scrollHeight;         // actual content height
+      if (neededH > maxH) {
+        const s = maxH / neededH;                 // scale factor to fit
+        inner.style.transform = `scale(${s})`;
+        // Optional: add bottom spacer so the scaled content appears visually centered vertically a bit more
+        // but keep simple to avoid reintroducing offset.
+      }
+    
       return face;
     }
+
 
 
     function buildPrintHTML(cardWrap){
