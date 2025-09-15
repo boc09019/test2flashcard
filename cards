@@ -1,0 +1,794 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>Interactive Cleaning Process Flashcards</title>
+  <script src="https://cdn.tailwindcss.com"></script>
+  <style>
+    :root { color-scheme: light dark; }
+    body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial; }
+    .flashcard { perspective: 1200px; width: 360px; height: 540px; }
+    .card-inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform .6s; }
+    .is-flipped .card-inner { transform: rotateY(180deg); }
+    .card-face { position: absolute; inset: 0; backface-visibility: hidden; border-radius: 18px; box-shadow: 0 10px 25px rgba(0,0,0,.18); }
+    .card-back { transform: rotateY(180deg); }
+
+    /* one card per row, centered */
+    #cardsGrid { display: grid; grid-template-columns: 1fr; gap: 2rem 0; place-items: center; }
+    .card-wrap { margin-inline: 1rem; }
+
+    /* editor look */
+    #editor label { color: #334155; font-size: .9rem; font-weight: 500; }
+    #editor input, #editor textarea, #editor select { background-color: #f8fafc; color: #0f172a; width: 100%; }
+    #editor textarea { resize: vertical; min-height: 3.5rem; }
+    .dark #editor input, .dark #editor textarea, .dark #editor select { background-color: #0b1220; color: #e5e7eb; border-color: #374151; }
+
+    .editor-grid { display: grid; grid-template-columns: 1fr; gap: 12px; align-items: start; }
+    .subgrid-3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; align-items: start; }
+    .thumb { width: 70px; height: 70px; object-fit: contain; border-radius: .375rem; background:#f8fafc; border: 1px solid #e5e7eb; }
+
+    /* compact file button */
+    input[type="file"].file-compact { font-size: .75rem; padding: .25rem .5rem; }
+    input[type="file"].file-compact::file-selector-button,
+    input[type="file"].file-compact::-webkit-file-upload-button {
+      padding: .25rem .5rem; font-size: .75rem; border-radius: .375rem; border: 1px solid #cbd5e1; background: #f1f5f9; color: #0f172a;
+    }
+    .dark input[type="file"].file-compact::file-selector-button,
+    .dark input[type="file"].file-compact::-webkit-file-upload-button { background:#111827; color:#e5e7eb; border-color:#374151; }
+
+    /* print */
+    @media print {
+      html, body { background: #fff !important; }
+      .no-print { display: none !important; }
+      #cardsGrid { display: block !important; }
+      .card-wrap { margin: 0 auto 24px auto !important; }
+      .flashcard { break-inside: avoid; page-break-inside: avoid; width: 360px !important; height: 540px !important; }
+      .card-inner { transform: none !important; }
+      .card-face { position: static !important; transform: none !important; box-shadow: none !important; }
+      .print-hide { display: none !important; }
+    }
+  </style>
+</head>
+<body class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 text-slate-800">
+  <div class="max-w-7xl mx-auto p-6">
+    <header class="no-print flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-6">
+      <div>
+        <h1 class="text-3xl font-bold">Cleaning Process Flashcards</h1>
+        <p class="text-slate-600">Create, study, print. Fully client-side.</p>
+      </div>
+      <div class="flex flex-wrap gap-2 items-center">
+        <button id="addCardBtn" class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">Add Card</button>
+        <button id="studyBtn" class="px-4 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700">Study Mode</button>
+        <button id="printSelectedBtn" class="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">Print Selected</button>
+        <button id="selfTestBtn" class="px-4 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600">Run Self-Tests</button>
+      </div>
+    </header>
+
+    <section class="no-print grid grid-cols-1 lg:grid-cols-3 gap-6">
+      <!-- Editor -->
+      <aside class="lg:col-span-1 bg-white rounded-2xl shadow p-5" id="editor">
+        <h2 class="text-xl font-semibold mb-4">Edit Card</h2>
+
+        <div class="editor-grid">
+          <div>
+            <label class="block mb-1" for="f_title">Process Name</label>
+            <input id="f_title" class="px-3 py-2 border rounded-md" placeholder="Bathroom Cleaning" />
+          </div>
+
+          <div>
+            <label class="block mb-1" for="f_desc">Description</label>
+            <textarea id="f_desc" rows="3" class="px-3 py-2 border rounded-md" placeholder="Short description"></textarea>
+          </div>
+
+          <div>
+            <label class="block mb-1" for="f_color">Card Color</label>
+            <select id="f_color" class="px-3 py-2 border rounded-md w-full">
+              <option value="blue">Blue</option>
+              <option value="green">Green</option>
+              <option value="indigo">Indigo</option>
+              <option value="purple">Purple</option>
+              <option value="red">Red</option>
+              <option value="yellow">Yellow</option>
+            </select>
+          </div>
+
+          <!-- Icon -->
+          <div class="subgrid-3">
+            <div><label class="block mb-1" for="f_iconUpload">Icon</label></div>
+            <div><input id="f_iconUpload" type="file" accept="image/*" class="px-2 py-1 text-sm border rounded-md bg-white w-full file-compact" /></div>
+            <div class="flex items-start gap-2"><img id="iconPreview" class="thumb hidden" alt="Icon preview" /></div>
+            <div></div>
+            <div class="flex items-center gap-3">
+              <label class="text-xs flex items-center gap-2"><input id="f_iconShow" type="checkbox" class="accent-blue-600" checked /> Show</label>
+              <button id="clearIconBtn" class="text-xs px-2 py-1 border rounded hidden">Remove</button>
+            </div>
+          </div>
+
+          <div>
+            <label class="block mb-1" for="f_iconSize">Icon Size (px)</label>
+            <div class="flex items-center gap-3">
+              <input id="f_iconSize" type="range" min="32" max="128" value="70" class="w-full">
+              <input id="f_iconSizeNum" type="number" min="32" max="128" value="70" class="w-20 px-2 py-1 border rounded-md">
+            </div>
+          </div>
+
+          <!-- QR -->
+          <div class="subgrid-3">
+            <div><label class="block mb-1" for="f_qrupload">QR Code</label></div>
+            <div><input id="f_qrupload" type="file" accept="image/*" class="px-2 py-1 text-sm border rounded-md bg-white w-full file-compact" /></div>
+            <div class="flex items-start gap-2"><img id="qrPreview" class="thumb hidden" alt="QR preview" /></div>
+            <div></div>
+            <div class="flex items-center gap-3">
+              <label class="text-xs flex items-center gap-2"><input id="f_qrShow" type="checkbox" class="accent-blue-600" checked /> Show</label>
+              <button id="clearQrBtn" class="text-xs px-2 py-1 border rounded hidden">Remove</button>
+            </div>
+          </div>
+
+          <div>
+            <label class="block mb-1" for="f_qrSize">QR Size (px)</label>
+            <div class="flex items-center gap-3">
+              <input id="f_qrSize" type="range" min="48" max="200" value="106" class="w-full">
+              <input id="f_qrSizeNum" type="number" min="48" max="200" value="106" class="w-20 px-2 py-1 border rounded-md">
+            </div>
+          </div>
+
+          <!-- Headings and content -->
+          <div>
+            <label class="block mb-1" for="f_equipLabel">Equipment Heading</label>
+            <input id="f_equipLabel" class="px-3 py-2 border rounded-md" placeholder="Equipment List" />
+          </div>
+
+          <div>
+            <label class="block mb-1" for="f_stepsLabel">Steps Heading</label>
+            <input id="f_stepsLabel" class="px-3 py-2 border rounded-md" placeholder="Process Steps" />
+          </div>
+
+          <div>
+            <label class="block mb-1" for="f_equipment">Equipment List</label>
+            <textarea id="f_equipment" rows="4" class="px-3 py-2 border rounded-md" placeholder="• item
+• item"></textarea>
+          </div>
+
+          <div>
+            <label class="block mb-1" for="f_steps">Process Steps</label>
+            <textarea id="f_steps" rows="6" class="px-3 py-2 border rounded-md" placeholder="1. step
+2. step"></textarea>
+          </div>
+
+          <!-- Optional extra section -->
+          <div>
+            <label class="block mb-1" for="f_extraLabel">Extra Heading (optional)</label>
+            <input id="f_extraLabel" class="px-3 py-2 border rounded-md" placeholder="Notes / Safety / Checklist" />
+          </div>
+          <div>
+            <label class="block mb-1" for="f_extraText">Extra Content</label>
+            <textarea id="f_extraText" rows="4" class="px-3 py-2 border rounded-md" placeholder="Any additional notes"></textarea>
+          </div>
+          <div>
+            <label class="block text-sm flex items-center gap-2" for="f_extraShow">
+              <input id="f_extraShow" type="checkbox" class="accent-blue-600" />
+              Show Extra Section
+            </label>
+          </div>
+
+          <div>
+            <div class="flex items-center justify-center gap-2">
+              <button id="saveCardBtn" class="px-3 py-2 rounded-md bg-blue-600 text-white hover:bg-blue-700">Save</button>
+              <button id="deleteCardBtn" class="px-3 py-2 rounded-md bg-rose-600 text-white hover:bg-rose-700">Delete</button>
+            </div>
+          </div>
+        </div>
+
+        <p class="text-xs text-slate-500 mt-3">Tip: Press <kbd class="px-1 border rounded">Space</kbd> to flip a focused card.</p>
+      </aside>
+
+      <!-- Cards -->
+      <main class="lg:col-span-2">
+        <div id="cardsGrid" class="grid grid-cols-1 gap-y-8 place-items-center"></div>
+      </main>
+    </section>
+
+    <section id="diagnostics" class="no-print mt-6 p-4 rounded-lg bg-amber-50 border border-amber-200 text-amber-800 hidden"></section>
+
+    <!-- Study Mode -->
+    <section id="studyOverlay" class="fixed inset-0 bg-black/70 backdrop-blur-sm hidden items-center justify-center z-50">
+      <div class="w-[380px] md:w-[420px]">
+        <div class="flex justify-between items-center mb-3">
+          <div class="text-white/80 text-sm" id="progressTxt">1 / 1</div>
+          <div class="space-x-2">
+            <button id="knownBtn" class="px-3 py-1 rounded bg-emerald-500 text-white">Known</button>
+            <button id="unknownBtn" class="px-3 py-1 rounded bg-rose-500 text-white">Retry</button>
+            <button id="closeStudyBtn" class="px-3 py-1 rounded bg-slate-700 text-white">Close</button>
+          </div>
+        </div>
+        <div class="flashcard mx-auto select-none" tabindex="0" id="studyCard"></div>
+        <div class="mt-4 flex justify-between text-white">
+          <button id="prevBtn" class="px-3 py-2 rounded bg-white/10">← Prev</button>
+          <button id="flipStudyBtn" class="px-3 py-2 rounded bg-white/10">Flip</button>
+          <button id="nextBtn" class="px-3 py-2 rounded bg-white/10">Next →</button>
+        </div>
+      </div>
+    </section>
+  </div>
+
+  <!-- Card template -->
+  <template id="cardTemplate">
+    <div class="card-wrap">
+      <div class="flashcard group" tabindex="0">
+        <div class="card-inner">
+          <!-- Front -->
+          <div class="card-face front text-white p-6 flex flex-col justify-between bg-gradient-to-br from-red-500 to-red-600 rounded-2xl">
+            <div class="text-center">
+              <div class="mb-4 flex justify-center items-center iconWrap" style="height:70px;">
+                <img class="object-contain hidden imgIcon" alt="Icon" style="width:70px;height:70px;" />
+              </div>
+              <h3 class="text-2xl font-bold title">Title</h3>
+              <p class="mt-2 text-sm/5 opacity-90 desc">Description</p>
+            </div>
+            <div class="text-center">
+              <div class="bg-white p-3 rounded-lg inline-flex items-center justify-center mx-auto shadow-inner qrBox" style="width: 7rem; height: 7rem;">
+                <img class="qrImg hidden object-contain" alt="QR" style="width:106px;height:106px;" />
+              </div>
+              <p class="mt-2 text-xs/4 opacity-80">Scan for details</p>
+            </div>
+            <div class="text-center text-xs/4 opacity-80 print-hide">Click to flip</div>
+          </div>
+          <!-- Back -->
+          <div class="card-face card-back text-white p-6 bg-gradient-to-br from-red-500 to-red-600 rounded-2xl">
+            <h4 class="text-xl font-semibold text-center border-b border-white/50 pb-2 mb-4">Process Details</h4>
+            <div class="space-y-4 overflow-auto pr-1" style="max-height: 360px">
+              <div>
+                <div class="font-semibold mb-1 equipLabel">Equipment List</div>
+                <div class="bg-white/15 p-3 rounded">
+                  <pre class="text-sm whitespace-pre-wrap equipment"></pre>
+                </div>
+              </div>
+              <div>
+                <div class="font-semibold mb-1 stepsLabel">Process Steps</div>
+                <div class="bg-white/15 p-3 rounded">
+                  <pre class="text-sm whitespace-pre-wrap steps"></pre>
+                </div>
+              </div>
+              <!-- Optional extra section -->
+              <div class="extraSection hidden">
+                <div class="font-semibold mb-1 extraLabel">Extra</div>
+                <div class="bg-white/15 p-3 rounded">
+                  <pre class="text-sm whitespace-pre-wrap extraText"></pre>
+                </div>
+              </div>
+            </div>
+            <div class="mt-3 text-center text-xs/4 opacity-80 print-hide">Click to flip back</div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </template>
+
+  <script>
+    /* ========= helpers ========= */
+    const $ = (q, el=document) => el.querySelector(q);
+    const $$ = (q, el=document) => [...el.querySelectorAll(q)];
+
+    const colorSchemes = {
+      blue:   { from: 'from-blue-500',   to: 'to-blue-600' },
+      green:  { from: 'from-green-500',  to: 'to-green-600' },
+      indigo: { from: 'from-indigo-500', to: 'to-indigo-600' },
+      purple: { from: 'from-purple-500', to: 'to-purple-600' },
+      red:    { from: 'from-red-500',    to: 'to-red-600' },
+      yellow: { from: 'from-yellow-500', to: 'to-yellow-600' },
+    };
+
+    const ICON_PX_FALLBACK = 70;
+    const QR_PX_FALLBACK = 106;
+
+    let cards = [];
+    let selectedId = null;
+    const _state = { iconImg: '', qrImg: '' };
+
+    function makeId(){ return Math.random().toString(36).slice(2,9); }
+
+    function defaultCard(){
+      return {
+        id: makeId(),
+        title: 'Bathroom Cleaning',
+        desc: 'Short description of the process',
+        color: 'red',
+        iconImg: '',
+        showIcon: true,
+        iconSize: ICON_PX_FALLBACK,
+        qrImg: '',
+        showQR: true,
+        qrSize: QR_PX_FALLBACK,
+        equipLabel: 'Equipment List',
+        stepsLabel: 'Process Steps',
+        equipment: '• Disinfectant spray\n• Microfiber cloths',
+        steps: '1. Step one\n2. Step two',
+        showExtra: false,
+        extraLabel: '',
+        extraText: ''
+      };
+    }
+
+    function loadFromLocal(){
+      try {
+        const raw = localStorage.getItem('cleaning_flashcards_v2');
+        if (!raw) { cards = [defaultCard()]; return; }
+        const parsed = JSON.parse(raw);
+        if (!Array.isArray(parsed) || !parsed.length) { cards = [defaultCard()]; return; }
+        cards = parsed;
+      } catch (e) {
+        console.warn('Local data invalid, using default.', e);
+        cards = [defaultCard()];
+      }
+      for (const c of cards) {
+        if (typeof c.iconSize !== 'number') c.iconSize = ICON_PX_FALLBACK;
+        if (typeof c.qrSize !== 'number') c.qrSize = QR_PX_FALLBACK;
+        if (!('showExtra' in c)) c.showExtra = false;
+        if (!('extraLabel' in c)) c.extraLabel = '';
+        if (!('extraText' in c)) c.extraText = '';
+        if (!c.equipLabel) c.equipLabel = 'Equipment List';
+        if (!c.stepsLabel) c.stepsLabel = 'Process Steps';
+        if (typeof c.showIcon !== 'boolean') c.showIcon = !!c.iconImg;
+        if (typeof c.showQR !== 'boolean') c.showQR = !!c.qrImg;
+      }
+    }
+    function saveToLocal(){ try{ localStorage.setItem('cleaning_flashcards_v2', JSON.stringify(cards)); }catch(_){} }
+    function onDataChanged(){ saveToLocal(); }
+
+    function applyColors(el, color){
+      const c = colorSchemes[color] || colorSchemes.blue;
+      el.classList.remove(...Object.values(colorSchemes).flatMap(s=>['bg-gradient-to-br', s.from, s.to]));
+      el.classList.add('bg-gradient-to-br', c.from, c.to);
+    }
+
+    function renderCard(card){
+      const tpl = document.getElementById('cardTemplate');
+      const wrap = tpl.content.firstElementChild.cloneNode(true);
+      const node = $('.flashcard', wrap);
+      const front = $('.card-face.front', wrap);
+      const back  = $('.card-face.card-back', wrap);
+      const imgIcon = $('.imgIcon', wrap);
+      const iconWrap = $('.iconWrap', wrap);
+      const qrBox = $('.qrBox', wrap);
+      const qrImg = $('.qrImg', wrap);
+      const extraSec = $('.extraSection', wrap);
+
+      $('.title', wrap).textContent = card.title;
+      $('.desc', wrap).textContent = card.desc;
+      $('.equipLabel', wrap).textContent = card.equipLabel || 'Equipment List';
+      $('.stepsLabel', wrap).textContent = card.stepsLabel || 'Process Steps';
+      $('.equipment', wrap).textContent = card.equipment || '';
+      $('.steps', wrap).textContent = card.steps || '';
+      applyColors(front, card.color); applyColors(back, card.color);
+
+      // icon
+      const iconSize = Math.min(128, Math.max(32, Number(card.iconSize || ICON_PX_FALLBACK)));
+      if(card.showIcon && card.iconImg){
+        imgIcon.src = card.iconImg;
+        imgIcon.style.width = iconSize+'px';
+        imgIcon.style.height = iconSize+'px';
+        iconWrap.style.height = iconSize+'px';
+        imgIcon.classList.remove('hidden'); iconWrap.classList.remove('hidden');
+      } else { imgIcon.classList.add('hidden'); iconWrap.classList.add('hidden'); }
+
+      // QR
+      const qrSize = Math.min(200, Math.max(48, Number(card.qrSize || QR_PX_FALLBACK)));
+      if(card.showQR && card.qrImg){
+        qrImg.src = card.qrImg; qrImg.classList.remove('hidden'); qrBox.style.display='inline-flex';
+        qrImg.style.width = qrSize+'px'; qrImg.style.height = qrSize+'px';
+        qrBox.style.width = (qrSize + 10) + 'px';
+        qrBox.style.height = (qrSize + 10) + 'px';
+      } else { qrImg.classList.add('hidden'); qrBox.style.display='none'; }
+
+      // Extra
+      const shouldShowExtra = !!card.showExtra && (!!card.extraLabel || !!card.extraText);
+      if (shouldShowExtra) {
+        $('.extraLabel', wrap).textContent = card.extraLabel || 'Extra';
+        $('.extraText', wrap).textContent = card.extraText || '';
+        extraSec.classList.remove('hidden');
+        extraSec.style.display = 'block';
+      } else {
+        extraSec.classList.add('hidden');
+        extraSec.style.display = 'none';
+      }
+
+      // interactions
+      wrap.addEventListener('click', ()=> node.classList.toggle('is-flipped'));
+      wrap.addEventListener('keydown', (e)=>{ if(e.code==='Space'){ e.preventDefault(); node.classList.toggle('is-flipped'); } });
+      wrap.addEventListener('dblclick', ()=> selectForEdit(card.id));
+      wrap.addEventListener('focusin', ()=> selectForEdit(card.id));
+
+      node.dataset.id = card.id; wrap.dataset.id = card.id; return wrap;
+    }
+
+    function mountGrid(){
+      const grid = document.getElementById('cardsGrid');
+      grid.innerHTML='';
+      for(const card of cards){ grid.appendChild(renderCard(card)); }
+      highlightSelected();
+    }
+
+    function selectForEdit(id){
+      selectedId = id; const card = cards.find(c=>c.id===id) || cards[0]; if(!card) return;
+      document.getElementById('f_title').value = card.title;
+      document.getElementById('f_desc').value = card.desc;
+      document.getElementById('f_color').value = card.color;
+      document.getElementById('f_equipment').value = card.equipment || '';
+      document.getElementById('f_steps').value = card.steps || '';
+      document.getElementById('f_equipLabel').value = card.equipLabel || 'Equipment List';
+      document.getElementById('f_stepsLabel').value = card.stepsLabel || 'Process Steps';
+      document.getElementById('f_iconShow').checked = !!card.showIcon;
+      document.getElementById('f_qrShow').checked = !!card.showQR;
+      document.getElementById('f_iconSize').value = card.iconSize || ICON_PX_FALLBACK;
+      document.getElementById('f_iconSizeNum').value = card.iconSize || ICON_PX_FALLBACK;
+      document.getElementById('f_qrSize').value = card.qrSize || QR_PX_FALLBACK;
+      document.getElementById('f_qrSizeNum').value = card.qrSize || QR_PX_FALLBACK;
+      document.getElementById('f_extraLabel').value = card.extraLabel || '';
+      document.getElementById('f_extraText').value = card.extraText || '';
+      document.getElementById('f_extraShow').checked = !!card.showExtra;
+
+      const ip = document.getElementById('iconPreview');
+      if(card.iconImg){ ip.src = card.iconImg; ip.classList.remove('hidden'); $('#clearIconBtn').classList.remove('hidden'); }
+      else { ip.classList.add('hidden'); $('#clearIconBtn').classList.add('hidden'); }
+
+      const qp = document.getElementById('qrPreview');
+      if(card.qrImg){ qp.src = card.qrImg; qp.classList.remove('hidden'); $('#clearQrBtn').classList.remove('hidden'); }
+      else { qp.classList.add('hidden'); $('#clearQrBtn').classList.add('hidden'); }
+
+      highlightSelected();
+    }
+
+    function highlightSelected(){
+      $$('#cardsGrid .flashcard').forEach(el=>{
+        if(el.dataset.id === selectedId) el.classList.add('ring-4','ring-sky-400');
+        else el.classList.remove('ring-4','ring-sky-400');
+      });
+    }
+
+    function gatherEditor(){
+      const iconVal = Math.min(128, Math.max(32, Number(document.getElementById('f_iconSize').value || ICON_PX_FALLBACK)));
+      const qrVal = Math.min(200, Math.max(48, Number(document.getElementById('f_qrSize').value || QR_PX_FALLBACK)));
+      return {
+        title: document.getElementById('f_title').value.trim() || 'Untitled',
+        desc: document.getElementById('f_desc').value.trim(),
+        color: document.getElementById('f_color').value,
+        iconImg: _state.iconImg || (cards.find(c=>c.id===selectedId)?.iconImg || ''),
+        showIcon: document.getElementById('f_iconShow').checked,
+        iconSize: iconVal,
+        qrImg: _state.qrImg || (cards.find(c=>c.id===selectedId)?.qrImg || ''),
+        showQR: document.getElementById('f_qrShow').checked,
+        qrSize: qrVal,
+        equipLabel: document.getElementById('f_equipLabel').value.trim() || 'Equipment List',
+        stepsLabel: document.getElementById('f_stepsLabel').value.trim() || 'Process Steps',
+        equipment: document.getElementById('f_equipment').value,
+        steps: document.getElementById('f_steps').value,
+        extraLabel: document.getElementById('f_extraLabel').value.trim(),
+        extraText: document.getElementById('f_extraText').value,
+        showExtra: document.getElementById('f_extraShow').checked
+      };
+    }
+
+    /* ========= study mode ========= */
+    let studyIndex = 0; let studyOrder = [];
+    function openStudy(){ if(!cards.length) return; studyOrder = cards.map(c=>c.id); studyIndex=0; $('#studyOverlay').classList.remove('hidden'); renderStudyCard(); $('#studyCard').focus(); }
+    function closeStudy(){ $('#studyOverlay').classList.add('hidden'); }
+    function renderStudyCard(){ const id = studyOrder[studyIndex]; const card = cards.find(c=>c.id===id);
+      const host = document.getElementById('studyCard'); host.innerHTML=''; host.appendChild($('.flashcard', renderCard(card)));
+      $('#progressTxt').textContent = `${studyIndex+1} / ${studyOrder.length}`;
+    }
+    function studyNext(){ if(studyIndex < studyOrder.length-1){ studyIndex++; renderStudyCard(); } }
+    function studyPrev(){ if(studyIndex > 0){ studyIndex--; renderStudyCard(); } }
+
+    /* ========= system dark mode ========= */
+    function applySystemDarkMode(){
+      const prefers = window.matchMedia('(prefers-color-scheme: dark)');
+      const set = () => {
+        document.documentElement.classList.toggle('dark', prefers.matches);
+        if (prefers.matches){
+          document.body.classList.add('bg-slate-900');
+          document.body.classList.remove('bg-gradient-to-br','from-blue-50','to-indigo-100');
+        } else {
+          document.body.classList.remove('bg-slate-900');
+          document.body.classList.add('bg-gradient-to-br','from-blue-50','to-indigo-100');
+        }
+      };
+      try { set(); prefers.addEventListener('change', set); } catch(_) { prefers.addListener && prefers.addListener(set); }
+    }
+
+    /* ========= PRINT: iframe-only, front & back on two Letter pages (Half-Letter card centered) ========= */
+
+    function prepareFace(origFace){
+      const face = origFace.cloneNode(true);
+
+      // Remove UI-only bits
+      face.querySelectorAll('.print-hide').forEach(e=> e.remove());
+
+      // Base layout (no Tailwind in print iframe)
+      face.style.display = 'flex';
+      face.style.flexDirection = 'column';
+      // Front spaced; Back top-aligned (prevents big top gap)
+      face.style.justifyContent = face.classList.contains('card-back') ? 'flex-start' : 'space-between';
+      face.style.padding = '24px';
+      face.style.borderRadius = '18px';
+      face.style.width = '360px';
+      face.style.height = '540px';
+      face.style.boxShadow = 'none';
+      face.style.transform = 'none';
+      face.style.position = 'relative';
+      face.style.textAlign = 'left';
+
+      // Preserve wrapping like screen
+      face.querySelectorAll('pre').forEach(p => { p.style.whiteSpace = 'pre-wrap'; });
+      face.querySelectorAll('.text-center').forEach(w => { w.style.textAlign = 'center'; });
+
+      // ICON: square wrapper + object-fit contain (no deformation)
+      face.querySelectorAll('.iconWrap').forEach(w=>{
+        const img = w.querySelector('img');
+        const visible = !w.classList.contains('hidden') && img && img.getAttribute('src');
+        if(!visible){ w.remove(); return; }
+
+        const cw = parseInt((img.style.width || getComputedStyle(img).width || '70px'), 10) || 70;
+        const ch = parseInt((img.style.height || getComputedStyle(img).height || '70px'), 10) || 70;
+        const size = Math.max(cw, ch, 70);
+
+        w.style.display = 'flex';
+        w.style.alignItems = 'center';
+        w.style.justifyContent = 'center';
+        w.style.margin = '0 auto';
+        w.style.width = size + 'px';
+        w.style.height = size + 'px';
+
+        img.style.display = 'block';
+        img.style.width   = '100%';
+        img.style.height  = '100%';
+        img.style.objectFit = 'contain';
+      });
+
+      // QR: centered square + object-fit contain
+      face.querySelectorAll('.qrBox').forEach(b=>{
+        const img = b.querySelector('img');
+        const visible = (b.style.display !== 'none') && img && img.getAttribute('src');
+        if(!visible){ b.remove(); return; }
+
+        const wpx = parseInt((img.style.width || '106px'), 10) || 106;
+        const hpx = parseInt((img.style.height || '106px'), 10) || 106;
+        const size = Math.max(wpx, hpx, 106);
+
+        b.style.display = 'flex';
+        b.style.alignItems = 'center';
+        b.style.justifyContent = 'center';
+        b.style.margin = '0 auto';
+        b.style.width = (size + 10) + 'px';
+        b.style.height = (size + 10) + 'px';
+        b.style.borderRadius = '10px';
+        b.style.background = '#fff';
+
+        img.style.display = 'block';
+        img.style.width   = '100%';
+        img.style.height  = '100%';
+        img.style.objectFit = 'contain';
+      });
+
+      // Drop hidden optional extra
+      face.querySelectorAll('.extraSection').forEach(sec=>{
+        const cs = getComputedStyle(sec);
+        if (sec.classList.contains('hidden') || cs.display === 'none') sec.remove();
+      });
+
+      // Carry gradient/colors
+      try {
+        const cs = getComputedStyle(origFace);
+        face.style.backgroundImage = cs.backgroundImage;
+        face.style.backgroundColor = cs.backgroundColor;
+        face.style.color = cs.color;
+      } catch(_) {}
+
+      return face;
+    }
+
+    function buildPrintHTML(cardWrap){
+      const dims = { wIn:5.5, hIn:8.5 }; // Half-Letter card print area
+      const inch = 96;
+      const fitW = Math.round(dims.wIn*inch), fitH = Math.round(dims.hIn*inch);
+      const cardW = 360, cardH = 540;
+      const scale = Math.min(fitW/cardW, fitH/cardH);
+
+      const front = prepareFace(cardWrap.querySelector('.card-face.front'));
+      const back  = prepareFace(cardWrap.querySelector('.card-face.card-back'));
+
+      const doc = document.implementation.createHTMLDocument('Print Flashcard');
+      const head = doc.head; const body = doc.body;
+
+      const style = doc.createElement('style');
+      style.textContent = `
+        *{box-sizing:border-box}
+        html,body{ margin:0; padding:0; background:#fff; color:#111; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        body{ font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji","Segoe UI Emoji"; }
+        .paper{ width:8.5in; height:11in; display:flex; align-items:center; justify-content:center; page-break-after: always; padding:0; }
+        .paper:last-child{ page-break-after: auto; }
+        .stage{ width:${cardW}px; height:${cardH}px; transform:scale(${scale}); transform-origin:center center; }
+        @page { size: 8.5in 11in; margin: 0; }
+      `;
+      head.appendChild(style);
+
+      function makePage(face){
+        const page = doc.createElement('div'); page.className='paper';
+        const fit = doc.createElement('div');
+        fit.setAttribute('style', `width:${dims.wIn}in;height:${dims.hIn}in;display:flex;align-items:center;justify-content:center;`);
+        const stage = doc.createElement('div'); stage.className='stage';
+        stage.appendChild(face);
+        fit.appendChild(stage); page.appendChild(fit);
+        return page;
+      }
+      body.appendChild(makePage(front));
+      body.appendChild(makePage(back));
+
+      const doctype = '<!DOCTYPE html>';
+      return doctype + doc.documentElement.outerHTML;
+    }
+
+    function printCurrent(){
+      const target = (selectedId && document.querySelector(`#cardsGrid .flashcard[data-id="${selectedId}"]`)) || document.querySelector('#cardsGrid .flashcard');
+      if(!target){ alert('No card to print. Double-click a card first.'); return; }
+      const wrap = target.closest('.card-wrap') || target;
+
+      const html = buildPrintHTML(wrap);
+
+      const ifr = document.createElement('iframe');
+      ifr.setAttribute('title', 'print-frame');
+      Object.assign(ifr.style, { position:'fixed', right:'0', bottom:'0', width:'1px', height:'1px', border:'0', visibility:'hidden' });
+      ifr.srcdoc = html;
+      document.body.appendChild(ifr);
+
+      const onReady = () => {
+        const cw = ifr.contentWindow, cd = ifr.contentDocument;
+        const finish = () => { try { cw.focus(); cw.print(); } finally { setTimeout(()=>{ try{ document.body.removeChild(ifr); }catch(_){} }, 1500); } };
+        const imgs = Array.from(cd.images || []);
+        if(imgs.length){
+          Promise.all(imgs.map(i => (i.decode ? i.decode() : (i.complete ? Promise.resolve() : new Promise(r => i.onload = r)))))
+            .then(()=> setTimeout(finish, 50))
+            .catch(()=> setTimeout(finish, 100));
+        } else {
+          setTimeout(finish, 50);
+        }
+      };
+      ifr.addEventListener('load', onReady);
+    }
+
+    /* ========= events & init ========= */
+    function wireEvents(){
+      document.getElementById('addCardBtn').addEventListener('click', ()=>{
+        const c = defaultCard(); c.id = makeId(); c.title='New Process'; c.desc='';
+        cards.unshift(c); onDataChanged(); mountGrid(); selectForEdit(c.id);
+      });
+
+      // Study mode
+      document.getElementById('studyBtn').addEventListener('click', openStudy);
+      document.getElementById('closeStudyBtn').addEventListener('click', closeStudy);
+      document.getElementById('flipStudyBtn').addEventListener('click', ()=> $('#studyCard .flashcard')?.classList.toggle('is-flipped'));
+      document.getElementById('nextBtn').addEventListener('click', ()=>{ if(!$('#studyOverlay').classList.contains('hidden')) studyNext(); });
+      document.getElementById('prevBtn').addEventListener('click', ()=>{ if(!$('#studyOverlay').classList.contains('hidden')) studyPrev(); });
+      document.addEventListener('keydown', (e)=>{ if($('#studyOverlay').classList.contains('hidden')) return;
+        if(e.key==='ArrowRight') studyNext();
+        if(e.key==='ArrowLeft') studyPrev();
+        if(e.code==='Space'){ e.preventDefault(); $('#studyCard .flashcard')?.classList.toggle('is-flipped'); }
+        if(e.key==='Escape') closeStudy();
+      });
+
+      // Print
+      document.getElementById('printSelectedBtn').addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); printCurrent(); });
+
+      // Save/Delete
+      document.getElementById('saveCardBtn').addEventListener('click', ()=>{
+        if(!selectedId){ selectedId = cards[0]?.id; }
+        const idx = cards.findIndex(c=>c.id===selectedId); if(idx===-1) return;
+        const updates = gatherEditor(); cards[idx] = { ...cards[idx], ...updates };
+        _state.iconImg=''; _state.qrImg=''; onDataChanged(); mountGrid(); highlightSelected();
+      });
+      document.getElementById('deleteCardBtn').addEventListener('click', ()=>{
+        if(!selectedId) return;
+        cards = cards.filter(c=>c.id!==selectedId); selectedId = cards[0]?.id || null;
+        onDataChanged(); mountGrid(); if(selectedId) selectForEdit(selectedId);
+      });
+
+      // icon size sync
+      const syncIconSize = (v) => {
+        const val = Math.min(128, Math.max(32, Number(v || ICON_PX_FALLBACK)));
+        document.getElementById('f_iconSize').value = val;
+        document.getElementById('f_iconSizeNum').value = val;
+      };
+      document.getElementById('f_iconSize').addEventListener('input', (e)=> syncIconSize(e.target.value));
+      document.getElementById('f_iconSizeNum').addEventListener('input', (e)=> syncIconSize(e.target.value));
+
+      // QR size sync
+      const syncQrSize = (v) => {
+        const val = Math.min(200, Math.max(48, Number(v || QR_PX_FALLBACK)));
+        document.getElementById('f_qrSize').value = val;
+        document.getElementById('f_qrSizeNum').value = val;
+      };
+      document.getElementById('f_qrSize').addEventListener('input', (e)=> syncQrSize(e.target.value));
+      document.getElementById('f_qrSizeNum').addEventListener('input', (e)=> syncQrSize(e.target.value));
+
+      // icon upload/clear
+      document.getElementById('f_iconUpload').addEventListener('change', (e)=>{
+        const f=e.target.files[0]; if(!f) return;
+        const r=new FileReader(); r.onload=()=>{
+          _state.iconImg = r.result;
+          const prev=document.getElementById('iconPreview'); prev.src=r.result; prev.classList.remove('hidden');
+          document.getElementById('clearIconBtn').classList.remove('hidden');
+        }; r.readAsDataURL(f);
+      });
+      document.getElementById('clearIconBtn').addEventListener('click', ()=>{
+        _state.iconImg=''; const prev=document.getElementById('iconPreview'); prev.classList.add('hidden'); prev.removeAttribute('src');
+      });
+
+      // QR upload/clear
+      document.getElementById('f_qrupload').addEventListener('change', (e)=>{
+        const f=e.target.files[0]; if(!f) return;
+        const r=new FileReader(); r.onload=()=>{
+          _state.qrImg = r.result;
+          const prev=document.getElementById('qrPreview'); prev.src=r.result; prev.classList.remove('hidden');
+          document.getElementById('clearQrBtn').classList.remove('hidden');
+        }; r.readAsDataURL(f);
+      });
+      document.getElementById('clearQrBtn').addEventListener('click', ()=>{
+        _state.qrImg=''; const prev=document.getElementById('qrPreview'); prev.classList.add('hidden'); prev.removeAttribute('src');
+      });
+
+      // Self tests (optional)
+      document.getElementById('selfTestBtn').addEventListener('click', runSelfTests);
+    }
+
+    function runSelfTests(){
+      const results = [];
+      const ok = s=>results.push('✅ '+s);
+      const fail=(s,e)=>results.push('❌ '+s+(e?': '+e:''));
+
+      try { document.getElementById('printSelectedBtn') ? ok('printSelectedBtn exists') : fail('printSelectedBtn exists', 'not found'); } catch(e){ fail('printSelectedBtn exists', e.message); }
+      try { const first = $('#cardsGrid .flashcard'); first ? ok('Card mounted') : fail('Card mounted', 'none'); } catch(e){ fail('Card mounted', e.message); }
+
+      try { const wrap = document.querySelector('.card-wrap'); if(wrap){
+        const html = buildPrintHTML(wrap);
+        if(html.startsWith('<!DOCTYPE html><html') && html.endsWith('</html>')) ok('Print HTML well-formed'); else fail('Print HTML well-formed');
+        if((html.match(/class="paper"/g)||[]).length===2) ok('Two Letter pages (front/back)'); else fail('Two Letter pages');
+        if(html.includes('size: 8.5in 11in')) ok('@page Letter size'); else fail('@page Letter size');
+        // Back face top-aligned
+        (/<div class="card-face card-back"[^>]*style="[^"]*justify-content:\s*flex-start/i.test(html))
+          ? ok('Back face top-aligned (no big top gap)')
+          : fail('Back face top-aligned');
+        // object-fit: contain present
+        (/<div[^>]*class="[^"]*iconWrap[^"]*"[^>]*>[\s\S]*?<img[^>]+style="[^"]*object-fit:\s*contain/i.test(html))
+          ? ok('Icon preserves aspect ratio in print')
+          : fail('Icon preserves aspect ratio');
+        (/<div[^>]*class="[^"]*qrBox[^"]*"[^>]*>[\s\S]*?<img[^>]+style="[^"]*object-fit:\s*contain/i.test(html))
+          ? ok('QR preserves aspect ratio in print')
+          : fail('QR preserves aspect ratio');
+      }} catch(e){ fail('Print checks', e.message); }
+
+      const box = document.getElementById('diagnostics'); if(box){ box.classList.remove('hidden'); box.style.whiteSpace='pre-wrap'; box.textContent = results.join('\n'); }
+      console.log('[SelfTests]', results);
+    }
+
+    function init(){
+      try {
+        applySystemDarkMode();
+        loadFromLocal();
+        mountGrid();
+        if (cards[0]) selectForEdit(cards[0].id);
+        wireEvents();
+      } catch (e) {
+        console.error('Init failed:', e);
+        const box = document.getElementById('diagnostics');
+        if (box) { box.classList.remove('hidden'); box.textContent = 'Init error: ' + (e?.message || e); }
+      }
+    }
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', init, { once: true });
+    } else {
+      init();
+    }
+  </script>
+</body>
+</html>
