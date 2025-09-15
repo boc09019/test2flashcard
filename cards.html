@@ -290,6 +290,13 @@
 
   <script>
 
+    // Optional per-page micro offsets (tweak if your printer adds a tiny shift)
+// Values can be "0", "2mm", "-3mm", "0.1in", etc.
+const PRINT_OFFSETS = {
+  front: { dx: '0mm', dy: '0mm' },
+  back:  { dx: '0mm', dy: '0mm' }
+};
+
     // Build a printable checklist into a container from multi-line text
 function makeChecklist(container, text){
   container.innerHTML = '';
@@ -705,46 +712,67 @@ function makeChecklist(container, text){
 
 
 
-    function buildPrintHTML(cardWrap){
-      const dims = { wIn:5.5, hIn:8.5 }; // Half-Letter card print area
-      const inch = 96;
-      const fitW = Math.round(dims.wIn*inch), fitH = Math.round(dims.hIn*inch);
-      const cardW = 360, cardH = 540;
-      const scale = Math.min(fitW/cardW, fitH/cardH);
-
-      const front = prepareFace(cardWrap.querySelector('.card-face.front'));
-      const back  = prepareFace(cardWrap.querySelector('.card-face.card-back'));
-
-      const doc = document.implementation.createHTMLDocument('Print Flashcard');
-      const head = doc.head; const body = doc.body;
-
-      const style = doc.createElement('style');
-      style.textContent = `
-        *{box-sizing:border-box}
-        html,body{ margin:0; padding:0; background:#fff; color:#111; -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-        body{ font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial, "Apple Color Emoji","Segoe UI Emoji"; }
-        .paper{ width:8.5in; height:11in; display:flex; align-items:center; justify-content:center; page-break-after: always; padding:0; }
-        .paper:last-child{ page-break-after: auto; }
-        .stage{ width:${cardW}px; height:${cardH}px; transform:scale(${scale}); transform-origin:center center; }
-        @page { size: 8.5in 11in; margin: 0; }
-      `;
-      head.appendChild(style);
-
-      function makePage(face){
-        const page = doc.createElement('div'); page.className='paper';
-        const fit = doc.createElement('div');
-        fit.setAttribute('style', `width:${dims.wIn}in;height:${dims.hIn}in;display:flex;align-items:center;justify-content:center;`);
-        const stage = doc.createElement('div'); stage.className='stage';
-        stage.appendChild(face);
-        fit.appendChild(stage); page.appendChild(fit);
-        return page;
+      function buildPrintHTML(cardWrap){
+    // Half-Letter card area we want (inches)
+    const cardWpx = 360, cardHpx = 540;        // our designed card in px
+    const areaW = '5.5in', areaH = '8.5in';    // target area in real inches
+  
+    // Clone faces prepared for print
+    const front = prepareFace(cardWrap.querySelector('.card-face.front'));
+    const back  = prepareFace(cardWrap.querySelector('.card-face.card-back'));
+  
+    const doc = document.implementation.createHTMLDocument('Print Flashcard');
+    const head = doc.head, body = doc.body;
+  
+    const style = doc.createElement('style');
+    style.textContent = `
+      *{box-sizing:border-box}
+      @page { size: 8.5in 11in; margin: 0; }  /* Letter, no margins */
+      html,body{ margin:0; padding:0; background:#fff; color:#111;
+                 -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+      body{ font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial; }
+  
+      /* a Letter page, center content */
+      .paper{ width:8.5in; height:11in; display:flex; align-items:center; justify-content:center;
+              page-break-after: always; padding:0; }
+  
+      /* fixed Half-Letter fit area, explicitly in inches */
+      .fit { width:${areaW}; height:${areaH};
+             display:flex; align-items:center; justify-content:center; position:relative; overflow:visible; }
+  
+      /* stage keeps our designed px size and is scaled using real-inch math */
+      .stage { width:${cardWpx}px; height:${cardHpx}px;
+               transform-origin: center center;
+               /* exact, device-independent scale:
+                  min( areaW/cardWpx , areaH/cardHpx ) computed by CSS */
+               transform: scale(calc(min(${areaW} / ${cardWpx}px, ${areaH} / ${cardHpx}px)));
       }
-      body.appendChild(makePage(front));
-      body.appendChild(makePage(back));
-
-      const doctype = '<!DOCTYPE html>';
-      return doctype + doc.documentElement.outerHTML;
+  
+      .paper:last-child{ page-break-after: auto; }
+    `;
+    head.appendChild(style);
+  
+    function page(face, dx, dy){
+      const paper = doc.createElement('div'); paper.className = 'paper';
+      const fit = doc.createElement('div'); fit.className = 'fit';
+      const stage = doc.createElement('div'); stage.className = 'stage';
+  
+      // optional micro-offsets (e.g., '1mm', '-0.5mm')
+      if (dx && dx !== '0') fit.style.left  = dx, fit.style.position = 'relative';
+      if (dy && dy !== '0') fit.style.top   = dy, fit.style.position = 'relative';
+  
+      stage.appendChild(face);
+      fit.appendChild(stage);
+      paper.appendChild(fit);
+      return paper;
     }
+  
+    body.appendChild(page(front, PRINT_OFFSETS.front.dx, PRINT_OFFSETS.front.dy));
+    body.appendChild(page(back,  PRINT_OFFSETS.back.dx,  PRINT_OFFSETS.back.dy));
+  
+    return '<!DOCTYPE html>' + doc.documentElement.outerHTML;
+  }
+
 
     function printCurrent(){
       const target = (selectedId && document.querySelector(`#cardsGrid .flashcard[data-id="${selectedId}"]`)) || document.querySelector('#cardsGrid .flashcard');
