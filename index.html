@@ -5,6 +5,7 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Interactive Cleaning Process Flashcards</title>
   <script src="https://cdn.tailwindcss.com"></script>
+  
   <style>
     :root { color-scheme: light dark; }
     body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial; }
@@ -68,6 +69,17 @@
         justify-self: end;
         background: transparent;
       }
+
+            // A small safety inset so the back never rides the page border.
+      // Increase to '8mm' if your printer is aggressive; '6mm' works well on macOS Chrome.
+      const PRINT_SAFE_INSET = '6mm';
+      
+      // Optional per-page micro offsets to correct tiny device-specific drift.
+      const PRINT_OFFSETS = {
+        front: { dx: '0mm', dy: '0mm' },
+        back:  { dx: '0mm', dy: '0mm' }
+      };
+
   </style>
 </head>
 <body class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 text-slate-800">
@@ -578,121 +590,91 @@ function makeChecklist(container, text){
       // Remove UI-only bits
       face.querySelectorAll('.print-hide').forEach(e=> e.remove());
     
-      // Base layout (no Tailwind in print iframe)
-      face.style.display = 'flex';
-      face.style.flexDirection = 'column';
-      face.style.justifyContent = face.classList.contains('card-back') ? 'flex-start' : 'space-between';
-      face.style.padding = '24px';
-      face.style.borderRadius = '18px';
-      face.style.width = '360px';
-      face.style.height = '540px';
-      face.style.boxSizing = 'border-box';     // include padding inside 360×540
-      face.style.boxShadow = 'none';
-      face.style.transform = 'none';
-      face.style.position = 'relative';
-      face.style.textAlign = 'left';
+      // Base
+      Object.assign(face.style, {
+        display:'flex', flexDirection:'column',
+        justifyContent: face.classList.contains('card-back') ? 'flex-start' : 'space-between',
+        padding:'24px', borderRadius:'18px',
+        width:'360px', height:'540px', boxSizing:'border-box',
+        boxShadow:'none', transform:'none', position:'relative', textAlign:'left', overflow:'hidden'
+      });
     
-      // Preserve wrapping like screen
+      // Keep wrapping similar to screen
       face.querySelectorAll('pre').forEach(p => { p.style.whiteSpace = 'pre-wrap'; });
       face.querySelectorAll('.text-center').forEach(w => { w.style.textAlign = 'center'; });
     
-      // ICON: square wrapper + object-fit contain (no deformation)
+      // ICON (square, contain)
       face.querySelectorAll('.iconWrap').forEach(w=>{
         const img = w.querySelector('img');
         const visible = !w.classList.contains('hidden') && img && img.getAttribute('src');
         if(!visible){ w.remove(); return; }
-    
         const cw = parseInt((img.style.width || getComputedStyle(img).width || '70px'), 10) || 70;
         const ch = parseInt((img.style.height || getComputedStyle(img).height || '70px'), 10) || 70;
         const size = Math.max(cw, ch, 70);
-    
-        w.style.display = 'flex';
-        w.style.alignItems = 'center';
-        w.style.justifyContent = 'center';
-        w.style.margin = '0 auto';
-        w.style.width = size + 'px';
-        w.style.height = size + 'px';
-    
-        img.style.display = 'block';
-        img.style.width   = '100%';
-        img.style.height  = '100%';
-        img.style.objectFit = 'contain';
+        Object.assign(w.style, { display:'flex', alignItems:'center', justifyContent:'center',
+                                 margin:'0 auto', width:size+'px', height:size+'px' });
+        Object.assign(img.style, { display:'block', width:'100%', height:'100%', objectFit:'contain' });
       });
     
-      // QR: centered square + object-fit contain
+      // QR (square, contain)
       face.querySelectorAll('.qrBox').forEach(b=>{
         const img = b.querySelector('img');
         const visible = (b.style.display !== 'none') && img && img.getAttribute('src');
         if(!visible){ b.remove(); return; }
-    
         const wpx = parseInt((img.style.width || '106px'), 10) || 106;
         const hpx = parseInt((img.style.height || getComputedStyle(img).height || '106px'), 10) || 106;
         const size = Math.max(wpx, hpx, 106);
-    
-        b.style.display = 'flex';
-        b.style.alignItems = 'center';
-        b.style.justifyContent = 'center';
-        b.style.margin = '0 auto';
-        b.style.width = (size + 10) + 'px';
-        b.style.height = (size + 10) + 'px';
-        b.style.borderRadius = '10px';
-        b.style.background = '#fff';
-    
-        img.style.display = 'block';
-        img.style.width   = '100%';
-        img.style.height  = '100%';
-        img.style.objectFit = 'contain';
+        Object.assign(b.style, { display:'flex', alignItems:'center', justifyContent:'center',
+                                 margin:'0 auto', width:(size+10)+'px', height:(size+10)+'px',
+                                 borderRadius:'10px', background:'#fff', boxSizing:'border-box' });
+        Object.assign(img.style, { display:'block', width:'100%', height:'100%', objectFit:'contain' });
       });
     
-      // --- Back-page layout normalization (prevents the 3rd box from touching the border) ---
       if (face.classList.contains('card-back')) {
-        // The container that used to be 'space-y-4 overflow-auto pr-1'
+        // Normalize the content column to a grid with consistent gaps
         const scroller = face.querySelector('[class*="overflow"]');
         if (scroller){
-          // use a grid with a fixed row gap (reliable in print)
-          scroller.style.display = 'grid';
-          scroller.style.gridAutoRows = 'min-content';
-          scroller.style.rowGap = '12px';
-          scroller.style.maxHeight = 'none';
-          scroller.style.overflow = 'visible';
-          scroller.style.padding = '0';
-          scroller.style.margin = '0';
+          Object.assign(scroller.style, {
+            display:'grid', gridAutoRows:'min-content', rowGap:'12px',
+            maxHeight:'none', overflow:'visible', padding:'0', margin:'0', boxSizing:'border-box'
+          });
         }
     
-        // Headings (Equipment / Steps / Extra)
+        // Headings
         face.querySelectorAll('.equipLabel, .stepsLabel, .extraLabel').forEach(lbl=>{
-          lbl.style.display = 'block';
-          lbl.style.fontWeight = '600';
-          lbl.style.margin = '2px 0 6px 0';
+          Object.assign(lbl.style, { display:'block', fontWeight:'600', margin:'2px 0 6px 0' });
         });
     
-        // Light boxes behind each section; give right padding so check-boxes aren't hugging the edge
+        // Section boxes (bg-white/15) – strict border-box + right padding
         face.querySelectorAll('[class*="bg-white/15"]').forEach(box=>{
-          box.style.background = 'rgba(255,255,255,0.15)';
-          box.style.borderRadius = '10px';
-          box.style.padding = '12px 16px 12px 12px'; // extra right padding
-          box.style.margin = '0';                    // let grid rowGap handle spacing
+          Object.assign(box.style, {
+            background:'rgba(255,255,255,0.15)', borderRadius:'10px',
+            padding:'12px 16px 12px 12px', margin:'0', width:'100%', boxSizing:'border-box'
+          });
         });
     
-        // Checklist row spacing
+        // Checklist line wrapping so long words never widen the block
         face.querySelectorAll('.checklist .chk-row').forEach(r=>{
           r.style.margin = '3px 0';
+          const txt = r.querySelector('.chk-text');
+          if (txt){
+            Object.assign(txt.style, { wordBreak:'break-word', overflowWrap:'anywhere' });
+          }
         });
     
-        // Ensure a tiny bottom spacer so the last block never sits on the rounded border
+        // Tiny bottom spacer so last box never touches rounded border
         const bottomSpacer = document.createElement('div');
-        bottomSpacer.style.height = '8px';
-        // append inside the scroller if present, otherwise at face end
+        bottomSpacer.style.height = '10px';
         (scroller || face).appendChild(bottomSpacer);
       }
     
-      // Drop hidden optional extra section entirely
+      // Remove hidden extra section entirely
       face.querySelectorAll('.extraSection').forEach(sec=>{
         const cs = getComputedStyle(sec);
         if (sec.classList.contains('hidden') || cs.display === 'none') sec.remove();
       });
     
-      // Carry gradient/colors from screen
+      // Copy gradient/colors
       try {
         const cs = getComputedStyle(origFace);
         face.style.backgroundImage = cs.backgroundImage;
@@ -700,23 +682,20 @@ function makeChecklist(container, text){
         face.style.color = cs.color;
       } catch(_) {}
     
-      // ===== Auto-fit tall content so nothing clips =====
+      // Auto-fit if content is tall (keeps inside 360×540)
       const inner = document.createElement('div');
       inner.style.transformOrigin = 'top center';
-      // Move children into inner
       while (face.firstChild) inner.appendChild(face.firstChild);
       face.appendChild(inner);
     
-      // Reserve a tiny safety bottom gap when computing scale
-      const SAFE_BOTTOM = 6; // px inside the card
-      const maxH = face.clientHeight - SAFE_BOTTOM;
+      const SAFE_BOTTOM = 8;                         // a bit more breathing room
+      const maxH = face.clientHeight - SAFE_BOTTOM;  // face is border-box
       const neededH = inner.scrollHeight;
-      if (neededH > maxH) {
-        inner.style.transform = `scale(${maxH / neededH})`;
-      }
+      if (neededH > maxH) inner.style.transform = `scale(${maxH / neededH})`;
     
       return face;
     }
+
 
 
 
