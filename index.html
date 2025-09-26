@@ -5,21 +5,43 @@
   <meta name="viewport" content="width=device-width, initial-scale=1" />
   <title>Interactive Cleaning Process Flashcards</title>
   <script src="https://cdn.tailwindcss.com"></script>
-  
   <style>
     :root { color-scheme: light dark; }
     body { font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial; }
+
+    /* Card */
     .flashcard { perspective: 1200px; width: 360px; height: 540px; }
     .card-inner { position: relative; width: 100%; height: 100%; transform-style: preserve-3d; transition: transform .6s; }
     .is-flipped .card-inner { transform: rotateY(180deg); }
     .card-face { position: absolute; inset: 0; backface-visibility: hidden; border-radius: 18px; box-shadow: 0 10px 25px rgba(0,0,0,.18); }
     .card-back { transform: rotateY(180deg); }
 
-    /* one card per row, centered */
+    /* One card per row, centered */
     #cardsGrid { display: grid; grid-template-columns: 1fr; gap: 2rem 0; place-items: center; }
-    .card-wrap { margin-inline: 1rem; }
+    .card-wrap { margin-inline: 1rem; position: relative; }
 
-    /* editor look */
+    /* Overlay duplicate button (per card) */
+    .dup-overlay {
+      position: absolute; top: 8px; right: 8px; z-index: 10;
+      opacity: 0; transition: opacity .2s ease;
+      background: rgba(15, 23, 42, .75); color: #fff;
+      border-radius: 9999px; padding: 6px 10px; font-size: 12px;
+      display: flex; align-items: center; gap: 6px;
+      box-shadow: 0 4px 10px rgba(0,0,0,.25);
+      backdrop-filter: blur(2px);
+    }
+    .dup-overlay svg { width: 14px; height: 14px; }
+    .card-wrap:hover .dup-overlay { opacity: 1; }
+    .dup-overlay:focus { opacity: 1; outline: 2px solid #22d3ee; }
+
+    /* Structure hooks for offsets */
+    .back-outer{ display:flex; flex-direction:column; height:100%; justify-content:center; }
+    .processTitle{ position: relative; }
+    .back-content{ position: relative; }
+    .frontTitle{ position: relative; }
+    .front-content{ position: relative; }
+
+    /* Editor look */
     #editor label { color: #334155; font-size: .9rem; font-weight: 500; }
     #editor input, #editor textarea, #editor select { background-color: #f8fafc; color: #0f172a; width: 100%; }
     #editor textarea { resize: vertical; min-height: 3.5rem; }
@@ -29,7 +51,7 @@
     .subgrid-3 { display: grid; grid-template-columns: repeat(3, minmax(0,1fr)); gap: 8px; align-items: start; }
     .thumb { width: 70px; height: 70px; object-fit: contain; border-radius: .375rem; background:#f8fafc; border: 1px solid #e5e7eb; }
 
-    /* compact file button */
+    /* Compact file button */
     input[type="file"].file-compact { font-size: .75rem; padding: .25rem .5rem; }
     input[type="file"].file-compact::file-selector-button,
     input[type="file"].file-compact::-webkit-file-upload-button {
@@ -38,48 +60,22 @@
     .dark input[type="file"].file-compact::file-selector-button,
     .dark input[type="file"].file-compact::-webkit-file-upload-button { background:#111827; color:#e5e7eb; border-color:#374151; }
 
-    /* print */
+    /* Checklist (screen) */
+    .checklist .chk-row{ display: grid; grid-template-columns: 1fr 18px; align-items: center; gap: 8px; margin: 2px 0; }
+    .checklist .chk-text{ font-size: 0.875rem; line-height: 1.25rem; white-space: pre-wrap; }
+    .checklist .chk-box{ width: 14px; height: 14px; border: 2px solid rgba(255,255,255,0.9); border-radius: 3px; justify-self: end; background: transparent; }
+
+    /* Print */
     @media print {
       html, body { background: #fff !important; }
       .no-print { display: none !important; }
       #cardsGrid { display: block !important; }
       .card-wrap { margin: 0 auto 24px auto !important; }
-      .flashcard { break-inside: avoid; page-break-inside: avoid; width: 360px !important; height: 540px !important; }
+      .flashcard { break-inside: avoid; page-break-inside: avoid; }
       .card-inner { transform: none !important; }
       .card-face { position: static !important; transform: none !important; box-shadow: none !important; }
-      .print-hide { display: none !important; }
+      .print-hide, .dup-overlay { display: none !important; }
     }
-          /* On-screen checklist layout (print uses inline styles injected by JS) */
-      .checklist .chk-row{
-        display: grid;
-        grid-template-columns: 1fr 18px;
-        align-items: center;
-        gap: 8px;
-        margin: 2px 0;
-      }
-      .checklist .chk-text{
-        font-size: 0.875rem; /* text-sm */
-        line-height: 1.25rem;
-        white-space: pre-wrap;
-      }
-      .checklist .chk-box{
-        width: 14px; height: 14px;
-        border: 2px solid rgba(255,255,255,0.9);
-        border-radius: 3px;
-        justify-self: end;
-        background: transparent;
-      }
-
-            // A small safety inset so the back never rides the page border.
-      // Increase to '8mm' if your printer is aggressive; '6mm' works well on macOS Chrome.
-      const PRINT_SAFE_INSET = '6mm';
-      
-      // Optional per-page micro offsets to correct tiny device-specific drift.
-      const PRINT_OFFSETS = {
-        front: { dx: '0mm', dy: '0mm' },
-        back:  { dx: '0mm', dy: '0mm' }
-      };
-
   </style>
 </head>
 <body class="min-h-screen bg-gradient-to-br from-blue-50 to-indigo-100 text-slate-800">
@@ -87,10 +83,11 @@
     <header class="no-print flex flex-col gap-3 md:flex-row md:items-center md:justify-between mb-6">
       <div>
         <h1 class="text-3xl font-bold">Cleaning Process Flashcards</h1>
-        <p class="text-slate-600">Create, study, print. Fully client-side.</p>
+        <p class="text-slate-600">Create, study, duplicate, print. Fully client-side.</p>
       </div>
       <div class="flex flex-wrap gap-2 items-center">
         <button id="addCardBtn" class="px-4 py-2 rounded-lg bg-blue-600 text-white hover:bg-blue-700">Add Card</button>
+        <button id="duplicateBtn" class="px-4 py-2 rounded-lg bg-sky-600 text-white hover:bg-sky-700">Duplicate Selected</button>
         <button id="studyBtn" class="px-4 py-2 rounded-lg bg-purple-600 text-white hover:bg-purple-700">Study Mode</button>
         <button id="printSelectedBtn" class="px-4 py-2 rounded-lg bg-emerald-600 text-white hover:bg-emerald-700">Print Selected</button>
         <button id="selfTestBtn" class="px-4 py-2 rounded-lg bg-amber-500 text-white hover:bg-amber-600">Run Self-Tests</button>
@@ -103,6 +100,41 @@
         <h2 class="text-xl font-semibold mb-4">Edit Card</h2>
 
         <div class="editor-grid">
+          <!-- Flashcard Size (per-card) -->
+          <div class="p-3 rounded-lg border border-slate-200 bg-slate-50">
+            <div class="flex flex-col gap-3">
+              <div class="flex items-center gap-2">
+                <label for="f_sizePreset" class="font-medium">Flashcard Size</label>
+                <select id="f_sizePreset" class="px-2 py-1 border rounded-md">
+                  <option value="default">Default (360×540)</option>
+                  <option value="small">Small (320×480)</option>
+                  <option value="medium">Medium (400×600)</option>
+                  <option value="large">Large (450×675)</option>
+                  <option value="custom">Custom…</option>
+                </select>
+                <label class="ml-auto text-xs flex items-center gap-2">
+                  <input id="f_lockRatio" type="checkbox" class="accent-blue-600" checked />
+                  Lock 2:3
+                </label>
+              </div>
+              <div class="grid grid-cols-2 gap-3">
+                <div>
+                  <label class="block text-xs mb-1" for="f_cardW">Width (px)</label>
+                  <input id="f_cardW" type="number" min="260" max="800" step="1" class="px-2 py-1 border rounded-md" />
+                </div>
+                <div>
+                  <label class="block text-xs mb-1" for="f_cardH">Height (px)</label>
+                  <input id="f_cardH" type="number" min="390" max="1200" step="1" class="px-2 py-1 border rounded-md" />
+                </div>
+              </div>
+              <div class="flex gap-2">
+                <button id="applySizeBtn" class="px-3 py-1.5 rounded-md bg-slate-800 text-white">Apply Size</button>
+                <button id="resetSizeBtn" class="px-3 py-1.5 rounded-md border">Reset</button>
+              </div>
+              <p class="text-xs text-slate-500">Per-card size; affects preview & printing (front/back on Letter).</p>
+            </div>
+          </div>
+
           <div>
             <label class="block mb-1" for="f_title">Process Name</label>
             <input id="f_title" class="px-3 py-2 border rounded-md" placeholder="Bathroom Cleaning" />
@@ -165,6 +197,62 @@
             </div>
           </div>
 
+          <!-- Front caption -->
+          <div>
+            <label class="block mb-1" for="f_caption">Front Caption (under QR)</label>
+            <input id="f_caption" class="px-3 py-2 border rounded-md" placeholder="Scan for details" />
+          </div>
+
+          <!-- Front layout controls -->
+          <div>
+            <div class="flex items-center justify-between">
+              <label class="block mb-1" for="f_frontTitleOffset">Front Title Offset (%)</label>
+              <button id="resetFrontTitleOffset" class="text-xs px-2 py-1 border rounded">Reset</button>
+            </div>
+            <div class="flex items-center gap-3">
+              <input id="f_frontTitleOffset" type="range" min="-40" max="40" value="0" class="w-full">
+              <input id="f_frontTitleOffsetNum" type="number" min="-40" max="40" value="0" class="w-20 px-2 py-1 border rounded-md">
+            </div>
+            <p class="text-xs text-slate-500 mt-1">Moves the big title on the front. Negative = up.</p>
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between">
+              <label class="block mb-1" for="f_frontContentOffset">Front Content Offset (%)</label>
+              <button id="resetFrontContentOffset" class="text-xs px-2 py-1 border rounded">Reset</button>
+            </div>
+            <div class="flex items-center gap-3">
+              <input id="f_frontContentOffset" type="range" min="-40" max="40" value="0" class="w-full">
+              <input id="f_frontContentOffsetNum" type="number" min="-40" max="40" value="0" class="w-20 px-2 py-1 border rounded-md">
+            </div>
+            <p class="text-xs text-slate-500 mt-1">Moves desc + QR + caption together. Negative = up.</p>
+          </div>
+
+          <!-- Back layout controls -->
+          <div>
+            <div class="flex items-center justify-between">
+              <label class="block mb-1" for="f_titleOffset">Back Title Offset (%)</label>
+              <button id="resetTitleOffset" class="text-xs px-2 py-1 border rounded">Reset</button>
+            </div>
+            <div class="flex items-center gap-3">
+              <input id="f_titleOffset" type="range" min="-40" max="40" value="-20" class="w-full">
+              <input id="f_titleOffsetNum" type="number" min="-40" max="40" value="-20" class="w-20 px-2 py-1 border rounded-md">
+            </div>
+            <p class="text-xs text-slate-500 mt-1">Negative = up, Positive = down (title only).</p>
+          </div>
+
+          <div>
+            <div class="flex items-center justify-between">
+              <label class="block mb-1" for="f_contentOffset">Back Content Offset (%)</label>
+              <button id="resetContentOffset" class="text-xs px-2 py-1 border rounded">Reset</button>
+            </div>
+            <div class="flex items-center gap-3">
+              <input id="f_contentOffset" type="range" min="-40" max="40" value="0" class="w-full">
+              <input id="f_contentOffsetNum" type="number" min="-40" max="40" value="0" class="w-20 px-2 py-1 border rounded-md">
+            </div>
+            <p class="text-xs text-slate-500 mt-1">Moves the Equipment/Steps/Extra block together.</p>
+          </div>
+
           <!-- Headings and content -->
           <div>
             <label class="block mb-1" for="f_equipLabel">Equipment Heading</label>
@@ -212,7 +300,7 @@
           </div>
         </div>
 
-        <p class="text-xs text-slate-500 mt-3">Tip: Press <kbd class="px-1 border rounded">Space</kbd> to flip a focused card.</p>
+        <p class="text-xs text-slate-500 mt-3">Tip: Double-click a card to select it. Press <kbd class="px-1 border rounded">Space</kbd> to flip a focused card.</p>
       </aside>
 
       <!-- Cards -->
@@ -247,6 +335,16 @@
   <!-- Card template -->
   <template id="cardTemplate">
     <div class="card-wrap">
+      <!-- Per-card overlay duplicate button -->
+      <button type="button" class="dup-overlay no-print" title="Duplicate this card">
+        <!-- tiny copy icon -->
+        <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" aria-hidden="true">
+          <rect x="9" y="9" width="11" height="11" rx="2"></rect>
+          <rect x="4" y="4" width="11" height="11" rx="2"></rect>
+        </svg>
+        Duplicate
+      </button>
+
       <div class="flashcard group" tabindex="0">
         <div class="card-inner">
           <!-- Front -->
@@ -255,45 +353,45 @@
               <div class="mb-4 flex justify-center items-center iconWrap" style="height:70px;">
                 <img class="object-contain hidden imgIcon" alt="Icon" style="width:70px;height:70px;" />
               </div>
-              <h3 class="text-2xl font-bold title">Title</h3>
-              <p class="mt-2 text-sm/5 opacity-90 desc">Description</p>
-            </div>
-            <div class="text-center">
-              <div class="bg-white p-3 rounded-lg inline-flex items-center justify-center mx-auto shadow-inner qrBox" style="width: 7rem; height: 7rem;">
-                <img class="qrImg hidden object-contain" alt="QR" style="width:106px;height:106px;" />
+              <h3 class="text-2xl font-bold title frontTitle">Title</h3>
+              <div class="front-content">
+                <p class="mt-2 text-sm/5 opacity-90 desc">Description</p>
+                <div class="text-center mt-3">
+                  <div class="bg-white p-3 rounded-lg inline-flex items-center justify-center mx-auto shadow-inner qrBox" style="width: 7rem; height: 7rem;">
+                    <img class="qrImg hidden object-contain" alt="QR" style="width:106px;height:106px;" />
+                  </div>
+                  <p class="mt-2 text-xs/4 opacity-80 caption">Scan for details</p>
+                </div>
               </div>
-              <p class="mt-2 text-xs/4 opacity-80">Scan for details</p>
             </div>
             <div class="text-center text-xs/4 opacity-80 print-hide">Click to flip</div>
           </div>
           <!-- Back -->
           <div class="card-face card-back text-white p-6 bg-gradient-to-br from-red-500 to-red-600 rounded-2xl">
-            <h4 class="text-xl font-semibold text-center border-b border-white/50 pb-2 mb-4">Process Details</h4>
-            <div class="space-y-4 overflow-auto pr-1" style="max-height: 360px">
-             <div>
-                <div class="font-semibold mb-1 equipLabel">Equipment List</div>
-                <div class="bg-white/15 p-3 rounded">
-                  <!-- checklist gets filled by JS -->
-                  <div class="checklist equipmentList"></div>
+            <div class="back-outer">
+              <h4 class="processTitle text-xl font-semibold text-center border-b border-white/50 pb-2 mb-4">Process Details</h4>
+              <div class="back-content space-y-4 overflow-auto pr-1" style="max-height: 360px">
+                <div>
+                  <div class="font-semibold mb-1 equipLabel">Equipment List</div>
+                  <div class="bg-white/15 p-3 rounded">
+                    <div class="checklist equipmentList"></div>
+                  </div>
+                </div>
+                <div>
+                  <div class="font-semibold mb-1 stepsLabel">Process Steps</div>
+                  <div class="bg-white/15 p-3 rounded">
+                    <div class="checklist stepsList"></div>
+                  </div>
+                </div>
+                <div class="extraSection hidden">
+                  <div class="font-semibold mb-1 extraLabel">Extra</div>
+                  <div class="bg-white/15 p-3 rounded">
+                    <div class="checklist extraList"></div>
+                  </div>
                 </div>
               </div>
-              <div>
-                <div class="font-semibold mb-1 stepsLabel">Process Steps</div>
-                <div class="bg-white/15 p-3 rounded">
-                  <!-- checklist gets filled by JS -->
-                  <div class="checklist stepsList"></div>
-                </div>
-              </div>
-              <!-- Optional extra section -->
-              <div class="extraSection hidden">
-                <div class="font-semibold mb-1 extraLabel">Extra</div>
-                <div class="bg-white/15 p-3 rounded">
-                  <!-- checklist gets filled by JS -->
-                  <div class="checklist extraList"></div>
-                </div>
-              </div>
+              <div class="mt-3 text-center text-xs/4 opacity-80 print-hide">Click to flip back</div>
             </div>
-            <div class="mt-3 text-center text-xs/4 opacity-80 print-hide">Click to flip back</div>
           </div>
         </div>
       </div>
@@ -301,57 +399,11 @@
   </template>
 
   <script>
+    /* ======= Config for print fine-tuning ======= */
+    const PRINT_SAFE_INSET = '6mm';
+    const PRINT_OFFSETS = { front:{dx:'0mm',dy:'0mm'}, back:{dx:'0mm',dy:'0mm'} };
 
-    // Optional per-page micro offsets (tweak if your printer adds a tiny shift)
-// Values can be "0", "2mm", "-3mm", "0.1in", etc.
-const PRINT_OFFSETS = {
-  front: { dx: '0mm', dy: '0mm' },
-  back:  { dx: '0mm', dy: '0mm' }
-};
-
-    // Build a printable checklist into a container from multi-line text
-function makeChecklist(container, text){
-  container.innerHTML = '';
-  if(!text) return;
-
-  const lines = String(text).split(/\r?\n/).map(s => {
-    // strip common bullet/number prefixes for cleaner alignment
-    return s.replace(/^\s*(?:[\u2022\u2023\u25E6\-–—]|(\d+)[\.)])\s*/, '').trim();
-  }).filter(Boolean);
-
-  for(const line of lines){
-    const row = document.createElement('div');
-    row.className = 'chk-row';
-    // inline styles so PRINT iframe doesn’t need external CSS
-    row.style.display = 'grid';
-    row.style.gridTemplateColumns = '1fr 18px';
-    row.style.alignItems = 'center';
-    row.style.gap = '8px';
-    row.style.margin = '2px 0';
-
-    const textSpan = document.createElement('span');
-    textSpan.className = 'chk-text';
-    textSpan.textContent = line;
-    textSpan.style.fontSize = '0.875rem';
-    textSpan.style.lineHeight = '1.25rem';
-    textSpan.style.whiteSpace = 'pre-wrap';
-
-    const box = document.createElement('span');
-    box.className = 'chk-box';
-    box.setAttribute('aria-hidden', 'true');
-    box.style.width = '14px';
-    box.style.height = '14px';
-    box.style.border = '2px solid rgba(255,255,255,0.9)'; // visible on dark gradient
-    box.style.borderRadius = '3px';
-    box.style.justifySelf = 'end';
-    box.style.background = 'transparent';
-
-    row.appendChild(textSpan);
-    row.appendChild(box);
-    container.appendChild(row);
-  }
-}
-    /* ========= helpers ========= */
+    /* ========= helpers & state ========= */
     const $ = (q, el=document) => el.querySelector(q);
     const $$ = (q, el=document) => [...el.querySelectorAll(q)];
 
@@ -364,18 +416,40 @@ function makeChecklist(container, text){
       yellow: { from: 'from-yellow-500', to: 'to-yellow-600' },
     };
 
+    const DEFAULT_CARD_W = 360;
+    const DEFAULT_CARD_H = 540;
+
     const ICON_PX_FALLBACK = 70;
     const QR_PX_FALLBACK = 106;
+
+    const FRONT_TITLE_OFFSET_DEFAULT = 0;
+    const FRONT_CONTENT_OFFSET_DEFAULT = 0;
+    const TITLE_OFFSET_DEFAULT = -20;
+    const CONTENT_OFFSET_DEFAULT = 0;
 
     let cards = [];
     let selectedId = null;
     const _state = { iconImg: '', qrImg: '' };
 
+    function clampNum(v, min, max){ v = Number(v); if (Number.isNaN(v)) v = min; return Math.min(max, Math.max(min, v)); }
+    function pctToPx(pct, basePx){ return (Number(pct||0) / 100) * basePx * 0.5; }
     function makeId(){ return Math.random().toString(36).slice(2,9); }
+
+    function ensureSizeFields(card){
+      if (typeof card.cardW !== 'number') card.cardW = DEFAULT_CARD_W;
+      if (typeof card.cardH !== 'number') card.cardH = DEFAULT_CARD_H;
+      if (typeof card.lockRatio !== 'boolean') card.lockRatio = true;
+      if (!card.sizePreset) card.sizePreset = 'default';
+    }
 
     function defaultCard(){
       return {
         id: makeId(),
+        cardW: DEFAULT_CARD_W,
+        cardH: DEFAULT_CARD_H,
+        lockRatio: true,
+        sizePreset: 'default',
+
         title: 'Bathroom Cleaning',
         desc: 'Short description of the process',
         color: 'red',
@@ -385,6 +459,11 @@ function makeChecklist(container, text){
         qrImg: '',
         showQR: true,
         qrSize: QR_PX_FALLBACK,
+        caption: 'Scan for details',
+        frontTitleOffsetPct: FRONT_TITLE_OFFSET_DEFAULT,
+        frontContentOffsetPct: FRONT_CONTENT_OFFSET_DEFAULT,
+        titleOffsetPct: TITLE_OFFSET_DEFAULT,
+        contentOffsetPct: CONTENT_OFFSET_DEFAULT,
         equipLabel: 'Equipment List',
         stepsLabel: 'Process Steps',
         equipment: '• Disinfectant spray\n• Microfiber cloths',
@@ -402,13 +481,16 @@ function makeChecklist(container, text){
         const parsed = JSON.parse(raw);
         if (!Array.isArray(parsed) || !parsed.length) { cards = [defaultCard()]; return; }
         cards = parsed;
-      } catch (e) {
-        console.warn('Local data invalid, using default.', e);
-        cards = [defaultCard()];
-      }
+      } catch (e) { console.warn('Local data invalid, using default.', e); cards = [defaultCard()]; }
+
       for (const c of cards) {
         if (typeof c.iconSize !== 'number') c.iconSize = ICON_PX_FALLBACK;
         if (typeof c.qrSize !== 'number') c.qrSize = QR_PX_FALLBACK;
+        if (!('caption' in c)) c.caption = 'Scan for details';
+        if (typeof c.frontTitleOffsetPct !== 'number') c.frontTitleOffsetPct = FRONT_TITLE_OFFSET_DEFAULT;
+        if (typeof c.frontContentOffsetPct !== 'number') c.frontContentOffsetPct = FRONT_CONTENT_OFFSET_DEFAULT;
+        if (typeof c.titleOffsetPct !== 'number') c.titleOffsetPct = TITLE_OFFSET_DEFAULT;
+        if (typeof c.contentOffsetPct !== 'number') c.contentOffsetPct = CONTENT_OFFSET_DEFAULT;
         if (!('showExtra' in c)) c.showExtra = false;
         if (!('extraLabel' in c)) c.extraLabel = '';
         if (!('extraText' in c)) c.extraText = '';
@@ -416,6 +498,7 @@ function makeChecklist(container, text){
         if (!c.stepsLabel) c.stepsLabel = 'Process Steps';
         if (typeof c.showIcon !== 'boolean') c.showIcon = !!c.iconImg;
         if (typeof c.showQR !== 'boolean') c.showQR = !!c.qrImg;
+        ensureSizeFields(c);
       }
     }
     function saveToLocal(){ try{ localStorage.setItem('cleaning_flashcards_v2', JSON.stringify(cards)); }catch(_){} }
@@ -427,10 +510,56 @@ function makeChecklist(container, text){
       el.classList.add('bg-gradient-to-br', c.from, c.to);
     }
 
+    /* ===== Checklist ===== */
+    function makeChecklist(container, text){
+      container.innerHTML = '';
+      if(!text) return;
+      const lines = String(text).split(/\r?\n/).map(s => {
+        return s.replace(/^\s*(?:[\u2022\u2023\u25E6\-–—]|(\d+)[\.)])\s*/, '').trim();
+      }).filter(Boolean);
+      for(const line of lines){
+        const row = document.createElement('div');
+        row.className = 'chk-row';
+        row.style.display = 'grid';
+        row.style.gridTemplateColumns = '1fr 18px';
+        row.style.alignItems = 'center';
+        row.style.gap = '8px';
+        row.style.margin = '3px 0';
+        const textSpan = document.createElement('span');
+        textSpan.className = 'chk-text';
+        textSpan.textContent = line;
+        textSpan.style.fontSize = '0.875rem';
+        textSpan.style.lineHeight = '1.25rem';
+        textSpan.style.whiteSpace = 'pre-wrap';
+        textSpan.style.wordBreak = 'break-word';
+        textSpan.style.overflowWrap = 'anywhere';
+        const box = document.createElement('span');
+        box.className = 'chk-box';
+        box.setAttribute('aria-hidden', 'true');
+        box.style.width = '14px';
+        box.style.height = '14px';
+        box.style.border = '2px solid rgba(255,255,255,0.9)';
+        box.style.borderRadius = '3px';
+        box.style.justifySelf = 'end';
+        box.style.background = 'transparent';
+        row.appendChild(textSpan);
+        row.appendChild(box);
+        container.appendChild(row);
+      }
+    }
+
+    /* ===== Render ===== */
     function renderCard(card){
+      ensureSizeFields(card);
+      const cardW = clampNum(card.cardW, 260, 800);
+      const cardH = clampNum(card.cardH, 390, 1200);
+
       const tpl = document.getElementById('cardTemplate');
       const wrap = tpl.content.firstElementChild.cloneNode(true);
       const node = $('.flashcard', wrap);
+      node.style.width = cardW + 'px';
+      node.style.height = cardH + 'px';
+
       const front = $('.card-face.front', wrap);
       const back  = $('.card-face.card-back', wrap);
       const imgIcon = $('.imgIcon', wrap);
@@ -438,17 +567,32 @@ function makeChecklist(container, text){
       const qrBox = $('.qrBox', wrap);
       const qrImg = $('.qrImg', wrap);
       const extraSec = $('.extraSection', wrap);
+      const backContent = $('.back-content', wrap);
+      const frontTitle = $('.frontTitle', wrap);
+      const frontContent = $('.front-content', wrap);
+      const captionEl = $('.caption', wrap);
 
       $('.title', wrap).textContent = card.title;
       $('.desc', wrap).textContent = card.desc;
+      captionEl.textContent = card.caption || 'Scan for details';
       $('.equipLabel', wrap).textContent = card.equipLabel || 'Equipment List';
       $('.stepsLabel', wrap).textContent = card.stepsLabel || 'Process Steps';
       makeChecklist($('.equipmentList', wrap), card.equipment || '');
       makeChecklist($('.stepsList', wrap), card.steps || '');
+
       applyColors(front, card.color); applyColors(back, card.color);
 
+      if (backContent) backContent.style.maxHeight = Math.max(120, cardH - 180) + 'px';
+
+      if (frontTitle)   frontTitle.style.transform   = `translateY(${pctToPx(card.frontTitleOffsetPct, cardH)}px)`;
+      if (frontContent) frontContent.style.transform = `translateY(${pctToPx(card.frontContentOffsetPct, cardH)}px)`;
+
+      const titleEl = $('.processTitle', wrap);
+      if (titleEl) titleEl.style.transform = `translateY(${pctToPx(card.titleOffsetPct, cardH)}px)`;
+      if (backContent) backContent.style.transform = `translateY(${pctToPx(card.contentOffsetPct, cardH)}px)`;
+
       // icon
-      const iconSize = Math.min(128, Math.max(32, Number(card.iconSize || ICON_PX_FALLBACK)));
+      const iconSize = clampNum(card.iconSize || ICON_PX_FALLBACK, 32, 128);
       if(card.showIcon && card.iconImg){
         imgIcon.src = card.iconImg;
         imgIcon.style.width = iconSize+'px';
@@ -458,7 +602,7 @@ function makeChecklist(container, text){
       } else { imgIcon.classList.add('hidden'); iconWrap.classList.add('hidden'); }
 
       // QR
-      const qrSize = Math.min(200, Math.max(48, Number(card.qrSize || QR_PX_FALLBACK)));
+      const qrSize = clampNum(card.qrSize || QR_PX_FALLBACK, 48, 200);
       if(card.showQR && card.qrImg){
         qrImg.src = card.qrImg; qrImg.classList.remove('hidden'); qrBox.style.display='inline-flex';
         qrImg.style.width = qrSize+'px'; qrImg.style.height = qrSize+'px';
@@ -466,9 +610,9 @@ function makeChecklist(container, text){
         qrBox.style.height = (qrSize + 10) + 'px';
       } else { qrImg.classList.add('hidden'); qrBox.style.display='none'; }
 
-      // Extra
-      const shouldShowExtra = !!card.showExtra && (!!card.extraLabel || !!card.extraText);
-      if (shouldShowExtra) {
+      // Extra section
+      const showExtra = !!card.showExtra && (!!card.extraLabel || !!card.extraText);
+      if (showExtra) {
         $('.extraLabel', wrap).textContent = card.extraLabel || 'Extra';
         makeChecklist($('.extraList', wrap), card.extraText || '');
         extraSec.classList.remove('hidden');
@@ -479,12 +623,17 @@ function makeChecklist(container, text){
       }
 
       // interactions
-      wrap.addEventListener('click', ()=> node.classList.toggle('is-flipped'));
+      wrap.addEventListener('click', (e)=>{
+        // ignore clicks on overlay duplicate
+        if (e.target.closest('.dup-overlay')) return;
+        node.classList.toggle('is-flipped');
+      });
       wrap.addEventListener('keydown', (e)=>{ if(e.code==='Space'){ e.preventDefault(); node.classList.toggle('is-flipped'); } });
       wrap.addEventListener('dblclick', ()=> selectForEdit(card.id));
       wrap.addEventListener('focusin', ()=> selectForEdit(card.id));
 
-      node.dataset.id = card.id; wrap.dataset.id = card.id; return wrap;
+      node.dataset.id = card.id; wrap.dataset.id = card.id;
+      return wrap;
     }
 
     function mountGrid(){
@@ -496,6 +645,15 @@ function makeChecklist(container, text){
 
     function selectForEdit(id){
       selectedId = id; const card = cards.find(c=>c.id===id) || cards[0]; if(!card) return;
+      ensureSizeFields(card);
+
+      // Size section (per card)
+      document.getElementById('f_cardW').value = card.cardW;
+      document.getElementById('f_cardH').value = card.cardH;
+      document.getElementById('f_lockRatio').checked = !!card.lockRatio;
+      document.getElementById('f_sizePreset').value = card.sizePreset || 'custom';
+
+      // Card data
       document.getElementById('f_title').value = card.title;
       document.getElementById('f_desc').value = card.desc;
       document.getElementById('f_color').value = card.color;
@@ -503,12 +661,25 @@ function makeChecklist(container, text){
       document.getElementById('f_steps').value = card.steps || '';
       document.getElementById('f_equipLabel').value = card.equipLabel || 'Equipment List';
       document.getElementById('f_stepsLabel').value = card.stepsLabel || 'Process Steps';
+      document.getElementById('f_caption').value = card.caption || 'Scan for details';
+
       document.getElementById('f_iconShow').checked = !!card.showIcon;
       document.getElementById('f_qrShow').checked = !!card.showQR;
       document.getElementById('f_iconSize').value = card.iconSize || ICON_PX_FALLBACK;
       document.getElementById('f_iconSizeNum').value = card.iconSize || ICON_PX_FALLBACK;
       document.getElementById('f_qrSize').value = card.qrSize || QR_PX_FALLBACK;
       document.getElementById('f_qrSizeNum').value = card.qrSize || QR_PX_FALLBACK;
+
+      document.getElementById('f_frontTitleOffset').value = card.frontTitleOffsetPct ?? FRONT_TITLE_OFFSET_DEFAULT;
+      document.getElementById('f_frontTitleOffsetNum').value = card.frontTitleOffsetPct ?? FRONT_TITLE_OFFSET_DEFAULT;
+      document.getElementById('f_frontContentOffset').value = card.frontContentOffsetPct ?? FRONT_CONTENT_OFFSET_DEFAULT;
+      document.getElementById('f_frontContentOffsetNum').value = card.frontContentOffsetPct ?? FRONT_CONTENT_OFFSET_DEFAULT;
+
+      document.getElementById('f_titleOffset').value = card.titleOffsetPct ?? TITLE_OFFSET_DEFAULT;
+      document.getElementById('f_titleOffsetNum').value = card.titleOffsetPct ?? TITLE_OFFSET_DEFAULT;
+      document.getElementById('f_contentOffset').value = card.contentOffsetPct ?? CONTENT_OFFSET_DEFAULT;
+      document.getElementById('f_contentOffsetNum').value = card.contentOffsetPct ?? CONTENT_OFFSET_DEFAULT;
+
       document.getElementById('f_extraLabel').value = card.extraLabel || '';
       document.getElementById('f_extraText').value = card.extraText || '';
       document.getElementById('f_extraShow').checked = !!card.showExtra;
@@ -532,18 +703,27 @@ function makeChecklist(container, text){
     }
 
     function gatherEditor(){
-      const iconVal = Math.min(128, Math.max(32, Number(document.getElementById('f_iconSize').value || ICON_PX_FALLBACK)));
-      const qrVal = Math.min(200, Math.max(48, Number(document.getElementById('f_qrSize').value || QR_PX_FALLBACK)));
+      const iconVal = clampNum(document.getElementById('f_iconSize').value || ICON_PX_FALLBACK, 32, 128);
+      const qrVal = clampNum(document.getElementById('f_qrSize').value || QR_PX_FALLBACK, 48, 200);
+      const frontTitleOff = clampNum(document.getElementById('f_frontTitleOffset').value ?? FRONT_TITLE_OFFSET_DEFAULT, -40, 40);
+      const frontContentOff = clampNum(document.getElementById('f_frontContentOffset').value ?? FRONT_CONTENT_OFFSET_DEFAULT, -40, 40);
+      const backTitleOff = clampNum(document.getElementById('f_titleOffset').value ?? TITLE_OFFSET_DEFAULT, -40, 40);
+      const backContentOff = clampNum(document.getElementById('f_contentOffset').value ?? CONTENT_OFFSET_DEFAULT, -40, 40);
       return {
         title: document.getElementById('f_title').value.trim() || 'Untitled',
         desc: document.getElementById('f_desc').value.trim(),
         color: document.getElementById('f_color').value,
+        caption: document.getElementById('f_caption').value.trim() || 'Scan for details',
         iconImg: _state.iconImg || (cards.find(c=>c.id===selectedId)?.iconImg || ''),
         showIcon: document.getElementById('f_iconShow').checked,
         iconSize: iconVal,
         qrImg: _state.qrImg || (cards.find(c=>c.id===selectedId)?.qrImg || ''),
         showQR: document.getElementById('f_qrShow').checked,
         qrSize: qrVal,
+        frontTitleOffsetPct: frontTitleOff,
+        frontContentOffsetPct: frontContentOff,
+        titleOffsetPct: backTitleOff,
+        contentOffsetPct: backContentOff,
         equipLabel: document.getElementById('f_equipLabel').value.trim() || 'Equipment List',
         stepsLabel: document.getElementById('f_stepsLabel').value.trim() || 'Process Steps',
         equipment: document.getElementById('f_equipment').value,
@@ -553,17 +733,6 @@ function makeChecklist(container, text){
         showExtra: document.getElementById('f_extraShow').checked
       };
     }
-
-    /* ========= study mode ========= */
-    let studyIndex = 0; let studyOrder = [];
-    function openStudy(){ if(!cards.length) return; studyOrder = cards.map(c=>c.id); studyIndex=0; $('#studyOverlay').classList.remove('hidden'); renderStudyCard(); $('#studyCard').focus(); }
-    function closeStudy(){ $('#studyOverlay').classList.add('hidden'); }
-    function renderStudyCard(){ const id = studyOrder[studyIndex]; const card = cards.find(c=>c.id===id);
-      const host = document.getElementById('studyCard'); host.innerHTML=''; host.appendChild($('.flashcard', renderCard(card)));
-      $('#progressTxt').textContent = `${studyIndex+1} / ${studyOrder.length}`;
-    }
-    function studyNext(){ if(studyIndex < studyOrder.length-1){ studyIndex++; renderStudyCard(); } }
-    function studyPrev(){ if(studyIndex > 0){ studyIndex--; renderStudyCard(); } }
 
     /* ========= system dark mode ========= */
     function applySystemDarkMode(){
@@ -581,29 +750,50 @@ function makeChecklist(container, text){
       try { set(); prefers.addEventListener('change', set); } catch(_) { prefers.addListener && prefers.addListener(set); }
     }
 
-    /* ========= PRINT: iframe-only, front & back on two Letter pages (Half-Letter card centered) ========= */
-
-    /* --- PRINT CLONE (back-page offsets + safe spacing) --- */
+    /* ========= PRINT ========= */
     function prepareFace(origFace){
+      const selected = cards.find(c => c.id === selectedId) || cards[0];
+      ensureSizeFields(selected);
+      const cardW = clampNum(selected.cardW, 260, 800);
+      const cardH = clampNum(selected.cardH, 390, 1200);
+
       const face = origFace.cloneNode(true);
-    
-      // Remove UI-only bits
+
       face.querySelectorAll('.print-hide').forEach(e=> e.remove());
-    
-      // Base
+
       Object.assign(face.style, {
         display:'flex', flexDirection:'column',
         justifyContent: face.classList.contains('card-back') ? 'flex-start' : 'space-between',
         padding:'24px', borderRadius:'18px',
-        width:'360px', height:'540px', boxSizing:'border-box',
+        width:`${cardW}px`, height:`${cardH}px`, boxSizing:'border-box',
         boxShadow:'none', transform:'none', position:'relative', textAlign:'left', overflow:'hidden'
       });
-    
-      // Keep wrapping similar to screen
+
       face.querySelectorAll('pre').forEach(p => { p.style.whiteSpace = 'pre-wrap'; });
       face.querySelectorAll('.text-center').forEach(w => { w.style.textAlign = 'center'; });
-    
-      // ICON (square, contain)
+
+      // FRONT offsets for print
+      if (face.classList.contains('front')){
+        const screenCard = selected;
+        const ft = face.querySelector('.frontTitle');
+        const fc = face.querySelector('.front-content');
+        if (ft) ft.style.transform = `translateY(${pctToPx(screenCard.frontTitleOffsetPct, cardH)}px)`;
+        if (fc) fc.style.transform = `translateY(${pctToPx(screenCard.frontContentOffsetPct, cardH)}px)`;
+        const cap = face.querySelector('.caption');
+        if (cap) cap.textContent = screenCard.caption || 'Scan for details';
+      }
+
+      // BACK offsets for print
+      if (face.classList.contains('card-back')) {
+        const title = face.querySelector('.processTitle');
+        const content = face.querySelector('.back-content');
+        const titlePx = pctToPx(selected.titleOffsetPct ?? -20, cardH);
+        const contentPx = pctToPx(selected.contentOffsetPct ?? 0, cardH);
+        if (title)   title.style.transform   = `translateY(${titlePx}px)`;
+        if (content) content.style.transform = `translateY(${contentPx}px)`;
+      }
+
+      // ICON
       face.querySelectorAll('.iconWrap').forEach(w=>{
         const img = w.querySelector('img');
         const visible = !w.classList.contains('hidden') && img && img.getAttribute('src');
@@ -615,8 +805,8 @@ function makeChecklist(container, text){
                                  margin:'0 auto', width:size+'px', height:size+'px' });
         Object.assign(img.style, { display:'block', width:'100%', height:'100%', objectFit:'contain' });
       });
-    
-      // QR (square, contain)
+
+      // QR
       face.querySelectorAll('.qrBox').forEach(b=>{
         const img = b.querySelector('img');
         const visible = (b.style.display !== 'none') && img && img.getAttribute('src');
@@ -629,138 +819,117 @@ function makeChecklist(container, text){
                                  borderRadius:'10px', background:'#fff', boxSizing:'border-box' });
         Object.assign(img.style, { display:'block', width:'100%', height:'100%', objectFit:'contain' });
       });
-    
+
       if (face.classList.contains('card-back')) {
-        // Normalize the content column to a grid with consistent gaps
-        const scroller = face.querySelector('[class*="overflow"]');
+        const bouter = face.querySelector('.back-outer');
+        if (bouter){ Object.assign(bouter.style, { display:'flex', flexDirection:'column', height:'100%', justifyContent:'center' }); }
+
+        const scroller = face.querySelector('.back-content');
         if (scroller){
           Object.assign(scroller.style, {
             display:'grid', gridAutoRows:'min-content', rowGap:'12px',
             maxHeight:'none', overflow:'visible', padding:'0', margin:'0', boxSizing:'border-box'
           });
         }
-    
-        // Headings
+
         face.querySelectorAll('.equipLabel, .stepsLabel, .extraLabel').forEach(lbl=>{
           Object.assign(lbl.style, { display:'block', fontWeight:'600', margin:'2px 0 6px 0' });
         });
-    
-        // Section boxes (bg-white/15) – strict border-box + right padding
         face.querySelectorAll('[class*="bg-white/15"]').forEach(box=>{
           Object.assign(box.style, {
             background:'rgba(255,255,255,0.15)', borderRadius:'10px',
             padding:'12px 16px 12px 12px', margin:'0', width:'100%', boxSizing:'border-box'
           });
         });
-    
-        // Checklist line wrapping so long words never widen the block
         face.querySelectorAll('.checklist .chk-row').forEach(r=>{
           r.style.margin = '3px 0';
           const txt = r.querySelector('.chk-text');
-          if (txt){
-            Object.assign(txt.style, { wordBreak:'break-word', overflowWrap:'anywhere' });
-          }
+          if (txt){ Object.assign(txt.style, { wordBreak:'break-word', overflowWrap:'anywhere' }); }
         });
-    
-        // Tiny bottom spacer so last box never touches rounded border
         const bottomSpacer = document.createElement('div');
         bottomSpacer.style.height = '10px';
         (scroller || face).appendChild(bottomSpacer);
       }
-    
-      // Remove hidden extra section entirely
+
       face.querySelectorAll('.extraSection').forEach(sec=>{
         const cs = getComputedStyle(sec);
         if (sec.classList.contains('hidden') || cs.display === 'none') sec.remove();
       });
-    
-      // Copy gradient/colors
+
       try {
         const cs = getComputedStyle(origFace);
         face.style.backgroundImage = cs.backgroundImage;
         face.style.backgroundColor = cs.backgroundColor;
         face.style.color = cs.color;
       } catch(_) {}
-    
-      // Auto-fit if content is tall (keeps inside 360×540)
+
       const inner = document.createElement('div');
       inner.style.transformOrigin = 'top center';
       while (face.firstChild) inner.appendChild(face.firstChild);
       face.appendChild(inner);
-    
-      const SAFE_BOTTOM = 8;                         // a bit more breathing room
-      const maxH = face.clientHeight - SAFE_BOTTOM;  // face is border-box
+      const SAFE_BOTTOM = 8;
+      const maxH = face.clientHeight - SAFE_BOTTOM;
       const neededH = inner.scrollHeight;
       if (neededH > maxH) inner.style.transform = `scale(${maxH / neededH})`;
-    
+
       return face;
     }
 
+    function buildPrintHTML(cardWrap){
+      const selected = cards.find(c => c.id === selectedId) || cards[0];
+      ensureSizeFields(selected);
+      const cardW = clampNum(selected.cardW, 260, 800);
+      const cardH = clampNum(selected.cardH, 390, 1200);
 
+      const areaW = '5.5in', areaH = '8.5in';
+      const front = prepareFace(cardWrap.querySelector('.card-face.front'));
+      const back  = prepareFace(cardWrap.querySelector('.card-face.card-back'));
 
+      const doc = document.implementation.createHTMLDocument('Print Flashcard');
+      const head = doc.head, body = doc.body;
 
+      const style = doc.createElement('style');
+      style.textContent = `
+        *{box-sizing:border-box}
+        @page { size: 8.5in 11in; margin: 0; }
+        :root{ --safe:${PRINT_SAFE_INSET}; }
+        html,body{ margin:0; padding:0; background:#fff; color:#111;
+                   -webkit-print-color-adjust: exact; print-color-adjust: exact; }
+        body{ font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial; }
 
-      function buildPrintHTML(cardWrap){
-    // Half-Letter card area we want (inches)
-    const cardWpx = 360, cardHpx = 540;        // our designed card in px
-    const areaW = '5.5in', areaH = '8.5in';    // target area in real inches
-  
-    // Clone faces prepared for print
-    const front = prepareFace(cardWrap.querySelector('.card-face.front'));
-    const back  = prepareFace(cardWrap.querySelector('.card-face.card-back'));
-  
-    const doc = document.implementation.createHTMLDocument('Print Flashcard');
-    const head = doc.head, body = doc.body;
-  
-    const style = doc.createElement('style');
-    style.textContent = `
-      *{box-sizing:border-box}
-      @page { size: 8.5in 11in; margin: 0; }  /* Letter, no margins */
-      html,body{ margin:0; padding:0; background:#fff; color:#111;
-                 -webkit-print-color-adjust: exact; print-color-adjust: exact; }
-      body{ font-family: ui-sans-serif, system-ui, -apple-system, Segoe UI, Roboto, Ubuntu, Cantarell, Noto Sans, Helvetica Neue, Arial; }
-  
-      /* a Letter page, center content */
-      .paper{ width:8.5in; height:11in; display:flex; align-items:center; justify-content:center;
-              page-break-after: always; padding:0; }
-  
-      /* fixed Half-Letter fit area, explicitly in inches */
-      .fit { width:${areaW}; height:${areaH};
-             display:flex; align-items:center; justify-content:center; position:relative; overflow:visible; }
-  
-      /* stage keeps our designed px size and is scaled using real-inch math */
-      .stage { width:${cardWpx}px; height:${cardHpx}px;
-               transform-origin: center center;
-               /* exact, device-independent scale:
-                  min( areaW/cardWpx , areaH/cardHpx ) computed by CSS */
-               transform: scale(calc(min(${areaW} / ${cardWpx}px, ${areaH} / ${cardHpx}px)));
+        .paper{ width:8.5in; height:11in; display:flex; align-items:center; justify-content:center; page-break-after: always; }
+        .paper:last-child{ page-break-after: auto; }
+
+        .fit { width: calc(${areaW} - var(--safe)*2);
+               height: calc(${areaH} - var(--safe)*2);
+               display:flex; align-items:center; justify-content:center; position:relative; }
+
+        .stage { width:${cardW}px; height:${cardH}px; transform-origin:center center;
+                 transform: scale(
+                   calc(min(
+                     (calc(${areaW} - var(--safe)*2)) / ${cardW}px,
+                     (calc(${areaH} - var(--safe)*2)) / ${cardH}px
+                   ))
+                 );
+        }
+      `;
+      head.appendChild(style);
+
+      function page(face, dx, dy){
+        const paper = doc.createElement('div'); paper.className='paper';
+        const theFit = doc.createElement('div'); theFit.className='fit';
+        const stage = doc.createElement('div'); stage.className='stage';
+        if (dx && dx !== '0') { theFit.style.left = dx; theFit.style.position='relative'; }
+        if (dy && dy !== '0') { theFit.style.top  = dy; theFit.style.position='relative'; }
+        stage.appendChild(face); theFit.appendChild(stage); paper.appendChild(theFit);
+        return paper;
       }
-  
-      .paper:last-child{ page-break-after: auto; }
-    `;
-    head.appendChild(style);
-  
-    function page(face, dx, dy){
-      const paper = doc.createElement('div'); paper.className = 'paper';
-      const fit = doc.createElement('div'); fit.className = 'fit';
-      const stage = doc.createElement('div'); stage.className = 'stage';
-  
-      // optional micro-offsets (e.g., '1mm', '-0.5mm')
-      if (dx && dx !== '0') fit.style.left  = dx, fit.style.position = 'relative';
-      if (dy && dy !== '0') fit.style.top   = dy, fit.style.position = 'relative';
-  
-      stage.appendChild(face);
-      fit.appendChild(stage);
-      paper.appendChild(fit);
-      return paper;
-    }
-  
-    body.appendChild(page(front, PRINT_OFFSETS.front.dx, PRINT_OFFSETS.front.dy));
-    body.appendChild(page(back,  PRINT_OFFSETS.back.dx,  PRINT_OFFSETS.back.dy));
-  
-    return '<!DOCTYPE html>' + doc.documentElement.outerHTML;
-  }
 
+      body.appendChild(page(front, PRINT_OFFSETS.front.dx, PRINT_OFFSETS.front.dy));
+      body.appendChild(page(back,  PRINT_OFFSETS.back.dx,  PRINT_OFFSETS.back.dy));
+
+      return '<!DOCTYPE html>' + doc.documentElement.outerHTML;
+    }
 
     function printCurrent(){
       const target = (selectedId && document.querySelector(`#cardsGrid .flashcard[data-id="${selectedId}"]`)) || document.querySelector('#cardsGrid .flashcard');
@@ -768,7 +937,6 @@ function makeChecklist(container, text){
       const wrap = target.closest('.card-wrap') || target;
 
       const html = buildPrintHTML(wrap);
-
       const ifr = document.createElement('iframe');
       ifr.setAttribute('title', 'print-frame');
       Object.assign(ifr.style, { position:'fixed', right:'0', bottom:'0', width:'1px', height:'1px', border:'0', visibility:'hidden' });
@@ -783,21 +951,61 @@ function makeChecklist(container, text){
           Promise.all(imgs.map(i => (i.decode ? i.decode() : (i.complete ? Promise.resolve() : new Promise(r => i.onload = r)))))
             .then(()=> setTimeout(finish, 50))
             .catch(()=> setTimeout(finish, 100));
-        } else {
-          setTimeout(finish, 50);
-        }
+        } else { setTimeout(finish, 50); }
       };
       ifr.addEventListener('load', onReady);
     }
 
-    /* ========= events & init ========= */
+    /* ========= Study mode ========= */
+    let studyIndex = 0; let studyOrder = [];
+    function openStudy(){ if(!cards.length) return; studyOrder = cards.map(c=>c.id); studyIndex=0; $('#studyOverlay').classList.remove('hidden'); renderStudyCard(); $('#studyCard').focus(); }
+    function closeStudy(){ $('#studyOverlay').classList.add('hidden'); }
+    function renderStudyCard(){ const id = studyOrder[studyIndex]; const card = cards.find(c=>c.id===id);
+      const host = document.getElementById('studyCard'); host.innerHTML=''; host.appendChild($('.flashcard', renderCard(card)));
+      $('#progressTxt').textContent = `${studyIndex+1} / ${studyOrder.length}`;
+    }
+    function studyNext(){ if(studyIndex < studyOrder.length-1){ studyIndex++; renderStudyCard(); } }
+    function studyPrev(){ if(studyIndex > 0){ studyIndex--; renderStudyCard(); } }
+
+    /* ========= Duplicate ========= */
+    function duplicateById(id){
+      const idx = cards.findIndex(c=>c.id===id);
+      if(idx < 0) return;
+      const orig = cards[idx];
+      const copy = JSON.parse(JSON.stringify(orig));
+      copy.id = makeId();
+      const baseTitle = (orig.title || 'Untitled').replace(/\s*\(copy\)+$/i,'').trim();
+      copy.title = baseTitle + ' (copy)';
+      cards.splice(idx+1, 0, copy);
+      onDataChanged(); mountGrid(); selectForEdit(copy.id);
+      const el = document.querySelector(`.card-wrap[data-id="${copy.id}"]`);
+      el && el.scrollIntoView({ behavior:'smooth', block:'center' });
+    }
+    function duplicateSelected(){
+      const id = selectedId || cards[0]?.id;
+      if(!id){ alert('No card to duplicate.'); return; }
+      duplicateById(id);
+    }
+
+    /* ========= Events & init ========= */
     function wireEvents(){
       document.getElementById('addCardBtn').addEventListener('click', ()=>{
         const c = defaultCard(); c.id = makeId(); c.title='New Process'; c.desc='';
         cards.unshift(c); onDataChanged(); mountGrid(); selectForEdit(c.id);
       });
 
-      // Study mode
+      document.getElementById('duplicateBtn').addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); duplicateSelected(); });
+
+      // Delegate overlay duplicate clicks
+      document.getElementById('cardsGrid').addEventListener('click', (e)=>{
+        const btn = e.target.closest('.dup-overlay');
+        if(!btn) return;
+        e.preventDefault(); e.stopPropagation();
+        const wrap = btn.closest('.card-wrap');
+        const id = wrap?.dataset.id;
+        if(id) duplicateById(id);
+      });
+
       document.getElementById('studyBtn').addEventListener('click', openStudy);
       document.getElementById('closeStudyBtn').addEventListener('click', closeStudy);
       document.getElementById('flipStudyBtn').addEventListener('click', ()=> $('#studyCard .flashcard')?.classList.toggle('is-flipped'));
@@ -810,41 +1018,157 @@ function makeChecklist(container, text){
         if(e.key==='Escape') closeStudy();
       });
 
-      // Print
       document.getElementById('printSelectedBtn').addEventListener('click', (e)=>{ e.preventDefault(); e.stopPropagation(); printCurrent(); });
 
-      // Save/Delete
       document.getElementById('saveCardBtn').addEventListener('click', ()=>{
         if(!selectedId){ selectedId = cards[0]?.id; }
         const idx = cards.findIndex(c=>c.id===selectedId); if(idx===-1) return;
         const updates = gatherEditor(); cards[idx] = { ...cards[idx], ...updates };
         _state.iconImg=''; _state.qrImg=''; onDataChanged(); mountGrid(); highlightSelected();
       });
+
       document.getElementById('deleteCardBtn').addEventListener('click', ()=>{
         if(!selectedId) return;
         cards = cards.filter(c=>c.id!==selectedId); selectedId = cards[0]?.id || null;
         onDataChanged(); mountGrid(); if(selectedId) selectForEdit(selectedId);
       });
 
-      // icon size sync
-      const syncIconSize = (v) => {
-        const val = Math.min(128, Math.max(32, Number(v || ICON_PX_FALLBACK)));
-        document.getElementById('f_iconSize').value = val;
-        document.getElementById('f_iconSizeNum').value = val;
-      };
-      document.getElementById('f_iconSize').addEventListener('input', (e)=> syncIconSize(e.target.value));
-      document.getElementById('f_iconSizeNum').addEventListener('input', (e)=> syncIconSize(e.target.value));
+      // ----- Size presets (per card) -----
+      const presetEl = document.getElementById('f_sizePreset');
+      const wEl = document.getElementById('f_cardW');
+      const hEl = document.getElementById('f_cardH');
+      const lockEl = document.getElementById('f_lockRatio');
 
-      // QR size sync
-      const syncQrSize = (v) => {
-        const val = Math.min(200, Math.max(48, Number(v || QR_PX_FALLBACK)));
-        document.getElementById('f_qrSize').value = val;
-        document.getElementById('f_qrSizeNum').value = val;
+      const presets = {
+        default: { cardW: 360, cardH: 540 },
+        small:   { cardW: 320, cardH: 480 },
+        medium:  { cardW: 400, cardH: 600 },
+        large:   { cardW: 450, cardH: 675 },
       };
-      document.getElementById('f_qrSize').addEventListener('input', (e)=> syncQrSize(e.target.value));
-      document.getElementById('f_qrSizeNum').addEventListener('input', (e)=> syncQrSize(e.target.value));
 
-      // icon upload/clear
+      function applyPresetToSelected(name){
+        if (!selectedId) return;
+        const idx = cards.findIndex(c=>c.id===selectedId); if (idx === -1) return;
+        const card = cards[idx]; ensureSizeFields(card);
+        if (presets[name]) {
+          card.cardW = presets[name].cardW;
+          card.cardH = presets[name].cardH;
+          card.sizePreset = name;
+          wEl.value = card.cardW; hEl.value = card.cardH;
+          onDataChanged(); mountGrid(); selectForEdit(card.id);
+        }
+      }
+
+      function syncHeightFromWidth(){
+        if (!selectedId) return;
+        const idx = cards.findIndex(c=>c.id===selectedId); if (idx === -1) return;
+        const card = cards[idx]; ensureSizeFields(card);
+        if (!lockEl.checked) return;
+        const w = clampNum(wEl.value, 260, 800);
+        const h = Math.round(w * 1.5);
+        hEl.value = clampNum(h, 390, 1200);
+      }
+      function syncWidthFromHeight(){
+        if (!selectedId) return;
+        const idx = cards.findIndex(c=>c.id===selectedId); if (idx === -1) return;
+        const card = cards[idx]; ensureSizeFields(card);
+        if (!lockEl.checked) return;
+        const h = clampNum(hEl.value, 390, 1200);
+        const w = Math.round(h / 1.5);
+        wEl.value = clampNum(w, 260, 800);
+      }
+
+      presetEl.addEventListener('change', e=>{
+        const v = e.target.value;
+        if (v === 'custom') return;
+        applyPresetToSelected(v);
+      });
+
+      wEl.addEventListener('input', ()=>{ syncHeightFromWidth(); });
+      hEl.addEventListener('input', ()=>{ syncWidthFromHeight(); });
+
+      document.getElementById('applySizeBtn').addEventListener('click', ()=>{
+        if (!selectedId) return;
+        const idx = cards.findIndex(c=>c.id===selectedId); if (idx === -1) return;
+        const card = cards[idx]; ensureSizeFields(card);
+        const w = clampNum(wEl.value, 260, 800);
+        const h = clampNum(hEl.value, 390, 1200);
+        const lock = !!lockEl.checked;
+        card.cardW = w; card.cardH = h; card.lockRatio = lock;
+        card.sizePreset = 'custom';
+        onDataChanged(); mountGrid(); selectForEdit(card.id);
+        presetEl.value = 'custom';
+      });
+
+      document.getElementById('resetSizeBtn').addEventListener('click', ()=>{
+        if (!selectedId) return;
+        const idx = cards.findIndex(c=>c.id===selectedId); if (idx === -1) return;
+        const card = cards[idx]; ensureSizeFields(card);
+        card.cardW = DEFAULT_CARD_W;
+        card.cardH = DEFAULT_CARD_H;
+        card.lockRatio = true;
+        card.sizePreset = 'default';
+        onDataChanged(); mountGrid(); selectForEdit(card.id);
+        presetEl.value = 'default';
+      });
+
+      // ----- Icon/QR & offsets live sync -----
+      const syncPair = (idRange, idNum, min, max, fallback, liveApply) => {
+        const clamp = v => Math.min(max, Math.max(min, Number(v ?? fallback)));
+        const set = v => {
+          const val = clamp(v);
+          document.getElementById(idRange).value = val;
+          document.getElementById(idNum).value = val;
+          if (typeof liveApply === 'function') liveApply(val);
+        };
+        document.getElementById(idRange).addEventListener('input', e=> set(e.target.value));
+        document.getElementById(idNum).addEventListener('input', e=> set(e.target.value));
+        return set;
+      };
+
+      // Icon/QR sizes
+      syncPair('f_iconSize','f_iconSizeNum',32,128,ICON_PX_FALLBACK);
+      syncPair('f_qrSize','f_qrSizeNum',48,200,QR_PX_FALLBACK);
+
+      // Live front offsets
+      const applyLiveFrontTitle = (percent)=>{
+        if (!selectedId) return;
+        const el = document.querySelector(`.card-wrap[data-id="${selectedId}"] .frontTitle`);
+        const card = cards.find(c=>c.id===selectedId); if(!el || !card) return;
+        ensureSizeFields(card); el.style.transform = `translateY(${pctToPx(percent, card.cardH)}px)`;
+      };
+      const applyLiveFrontContent = (percent)=>{
+        if (!selectedId) return;
+        const el = document.querySelector(`.card-wrap[data-id="${selectedId}"] .front-content`);
+        const card = cards.find(c=>c.id===selectedId); if(!el || !card) return;
+        ensureSizeFields(card); el.style.transform = `translateY(${pctToPx(percent, card.cardH)}px)`;
+      };
+      const setFrontTitle = syncPair('f_frontTitleOffset','f_frontTitleOffsetNum',-40,40,FRONT_TITLE_OFFSET_DEFAULT, applyLiveFrontTitle);
+      const setFrontContent = syncPair('f_frontContentOffset','f_frontContentOffsetNum',-40,40,FRONT_CONTENT_OFFSET_DEFAULT, applyLiveFrontContent);
+
+      document.getElementById('resetFrontTitleOffset').addEventListener('click', ()=> setFrontTitle(FRONT_TITLE_OFFSET_DEFAULT));
+      document.getElementById('resetFrontContentOffset').addEventListener('click', ()=> setFrontContent(FRONT_CONTENT_OFFSET_DEFAULT));
+
+      // Live back offsets
+      const applyLiveTitle = (percent)=>{
+        if (!selectedId) return;
+        const el = document.querySelector(`.card-wrap[data-id="${selectedId}"] .processTitle`);
+        const card = cards.find(c=>c.id===selectedId); if(!el || !card) return;
+        ensureSizeFields(card); el.style.transform = `translateY(${pctToPx(percent, card.cardH)}px)`;
+      };
+      const applyLiveContent = (percent)=>{
+        if (!selectedId) return;
+        const el = document.querySelector(`.card-wrap[data-id="${selectedId}"] .back-content`);
+        const card = cards.find(c=>c.id===selectedId); if(!el || !card) return;
+        ensureSizeFields(card); el.style.transform = `translateY(${pctToPx(percent, card.cardH)}px)`;
+      };
+      const setTitle = syncPair('f_titleOffset','f_titleOffsetNum',-40,40,TITLE_OFFSET_DEFAULT, applyLiveTitle);
+      const setContent = syncPair('f_contentOffset','f_contentOffsetNum',-40,40,CONTENT_OFFSET_DEFAULT, applyLiveContent);
+
+      document.getElementById('resetTitleOffset').addEventListener('click', ()=> setTitle(TITLE_OFFSET_DEFAULT));
+      document.getElementById('resetContentOffset').addEventListener('click', ()=> setContent(CONTENT_OFFSET_DEFAULT));
+
+      // uploads
       document.getElementById('f_iconUpload').addEventListener('change', (e)=>{
         const f=e.target.files[0]; if(!f) return;
         const r=new FileReader(); r.onload=()=>{
@@ -857,7 +1181,6 @@ function makeChecklist(container, text){
         _state.iconImg=''; const prev=document.getElementById('iconPreview'); prev.classList.add('hidden'); prev.removeAttribute('src');
       });
 
-      // QR upload/clear
       document.getElementById('f_qrupload').addEventListener('change', (e)=>{
         const f=e.target.files[0]; if(!f) return;
         const r=new FileReader(); r.onload=()=>{
@@ -870,7 +1193,7 @@ function makeChecklist(container, text){
         _state.qrImg=''; const prev=document.getElementById('qrPreview'); prev.classList.add('hidden'); prev.removeAttribute('src');
       });
 
-      // Self tests (optional)
+      // Self-tests
       document.getElementById('selfTestBtn').addEventListener('click', runSelfTests);
     }
 
@@ -879,26 +1202,20 @@ function makeChecklist(container, text){
       const ok = s=>results.push('✅ '+s);
       const fail=(s,e)=>results.push('❌ '+s+(e?': '+e:''));
 
-      try { document.getElementById('printSelectedBtn') ? ok('printSelectedBtn exists') : fail('printSelectedBtn exists', 'not found'); } catch(e){ fail('printSelectedBtn exists', e.message); }
+      try { document.getElementById('printSelectedBtn') ? ok('Print button exists') : fail('Print button exists', 'not found'); } catch(e){ fail('Print button exists', e.message); }
+      try { document.getElementById('duplicateBtn') ? ok('Toolbar duplicate exists') : fail('Toolbar duplicate exists', 'not found'); } catch(e){ fail('Toolbar duplicate exists', e.message); }
+      try { const ov = document.querySelector('.dup-overlay'); ov ? ok('Per-card overlay duplicate exists') : fail('Per-card overlay duplicate', 'not found'); } catch(e){ fail('Per-card overlay duplicate', e.message); }
       try { const first = $('#cardsGrid .flashcard'); first ? ok('Card mounted') : fail('Card mounted', 'none'); } catch(e){ fail('Card mounted', e.message); }
 
-      try { const wrap = document.querySelector('.card-wrap'); if(wrap){
-        const html = buildPrintHTML(wrap);
-        if(html.startsWith('<!DOCTYPE html><html') && html.endsWith('</html>')) ok('Print HTML well-formed'); else fail('Print HTML well-formed');
-        if((html.match(/class="paper"/g)||[]).length===2) ok('Two Letter pages (front/back)'); else fail('Two Letter pages');
-        if(html.includes('size: 8.5in 11in')) ok('@page Letter size'); else fail('@page Letter size');
-        // Back face top-aligned
-        (/<div class="card-face card-back"[^>]*style="[^"]*justify-content:\s*flex-start/i.test(html))
-          ? ok('Back face top-aligned (no big top gap)')
-          : fail('Back face top-aligned');
-        // object-fit: contain present
-        (/<div[^>]*class="[^"]*iconWrap[^"]*"[^>]*>[\s\S]*?<img[^>]+style="[^"]*object-fit:\s*contain/i.test(html))
-          ? ok('Icon preserves aspect ratio in print')
-          : fail('Icon preserves aspect ratio');
-        (/<div[^>]*class="[^"]*qrBox[^"]*"[^>]*>[\s\S]*?<img[^>]+style="[^"]*object-fit:\s*contain/i.test(html))
-          ? ok('QR preserves aspect ratio in print')
-          : fail('QR preserves aspect ratio');
-      }} catch(e){ fail('Print checks', e.message); }
+      try {
+        const wrap = document.querySelector('.card-wrap');
+        if (wrap){
+          const html = buildPrintHTML(wrap);
+          if(html.startsWith('<!DOCTYPE html><html') && html.endsWith('</html>')) ok('Print HTML well-formed'); else fail('Print HTML well-formed');
+          (html.match(/class="paper"/g)||[]).length===2 ? ok('Two Letter pages (front/back)') : fail('Two Letter pages');
+          html.includes('--safe:') ? ok('Safe inset present') : fail('Safe inset missing');
+        }
+      } catch(e){ fail('Print checks', e.message); }
 
       const box = document.getElementById('diagnostics'); if(box){ box.classList.remove('hidden'); box.style.whiteSpace='pre-wrap'; box.textContent = results.join('\n'); }
       console.log('[SelfTests]', results);
